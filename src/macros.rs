@@ -2,11 +2,12 @@
 /// call a STM function from inside of a STM block
 /// 
 /// if we had control over stack unwinding we could use that
+#[macro_export]
 macro_rules! stm_call {
     ( $e:expr )     => ({
-        use $crate::stm::StmResult::*;
+        use $crate::StmResult::*;
 
-        let ret = unsafe { $e.intern_run() };
+        let ret = $e.intern_run();
         match ret {
             Success(s)  => s,
             Retry       => return Retry,
@@ -17,14 +18,13 @@ macro_rules! stm_call {
 
 
 /// declare a block that uses STM
+#[macro_export]
 macro_rules! stm {
     ( $e:expr )    => {{
-        use $crate::stm::StmResult;
-
         let func = move || {
-            StmResult::Success($e)
+            $crate::StmResult::Success($e)
         };
-        STM::new(func)
+        $crate::STM::new(func)
     }}
 }
 

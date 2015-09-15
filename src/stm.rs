@@ -90,14 +90,21 @@ pub enum StmResult<T> {
 }
 
 
+
 /// call retry in `stm_call!` to let the STM manually run again
 ///
 /// this will block until at least one of the read vars has changed
 ///
 /// # Examples
 ///
-/// ```ignore
-/// stm_call!(retry())
+/// ```
+/// # #[macro_use] extern crate stm;
+/// # fn main() {
+/// use stm::retry;
+/// let infinite_retry = stm!({
+///     stm_call!(retry());
+/// });
+/// # }
 /// ```
 
 pub fn retry() -> STM<()> {
@@ -130,58 +137,91 @@ impl<T: 'static> STM<T> {
     ///
     /// internal use only. Prefer atomically because it sets up
     /// the log and retry the computation until it has succeeded
-    pub unsafe fn intern_run(&self) -> StmResult<T> {
+    ///
+    /// internal use only
+    pub fn intern_run(&self) -> StmResult<T> {
         // can't call directly because rust assumes 
         // self.intern() to be a method call
         (&*self.intern)()
     }
 
 
+    /// write the log back to the variables
+    ///
+    /// return true for success and false if a read var has changed
     fn log_writeback(&self) -> bool {
-        // write data out to variables
+        // use two phase locking for safely writing data back to the vars
         with_log(|log| {
+
+            // first phase: acquire locks
+            // check for correctness of the values and perform
+            // an early return if something is not consistent
+            
+
+            // created arrays for storing the locks
+            
+            // vector of locks
             let mut read_vec = Vec::new();
+
+            // vector of tuple (variable, value, lock)
             let mut write_vec = Vec::new();
 
-            for (k, v) in log.vars.iter() {
+            for (var, value) in &log.vars {
                 // lock the variable and read the value
-                let value = if let Some(ref written) = v.write {
-                    // if the variable is written to, unblock all threads
-                    k.wake_all();
-
-                    // take write lock
-                    let lock = k.value.write().unwrap();
-                    // get the inner value
-                    let value = lock.clone();
-                    write_vec.push((written.clone(), lock));
-                    value
-                } else {
-                    let lock = k.value.read().unwrap();
-                    let value = lock.clone();
-                    read_vec.push(lock);
-                    value
+                let current_value =
+                    match value.write {
+                    Some(ref written) => {
+                        // take write lock
+                        let lock = var.value.write().unwrap();
+                        // get the current value
+                        let current_value = lock.clone();
+                        // add all data to the vector
+                        write_vec.push((var, written.clone(), lock));
+                        // return the current value
+                        current_value
+                    }
+                    _ => {
+                        // take a read lock
+                        let lock = var.value.read().unwrap();
+                        // take the current value
+                        let current_value = lock.clone();
+                        read_vec.push(lock);
+                        current_value
+                    }
                 };
 
                 // if the value was read then compare
-                if let Some(ref val) = v.read {
-                    if !same_address(&value, val) {
+                if let Some(ref original) = value.read {
+                    // if the current value is no longer that
+                    // when the computation started then abort commit
+                    if !same_address(&current_value, original) {
                         return false;
                     }
                 }
             }
 
-            // now that all are locked commit the changes
-            for (value, mut lock) in write_vec {
+            // second phase: write back and release
+
+            // release the reads first because they are faster
+            mem::drop(read_vec);
+
+
+            for (var, value, mut lock) in write_vec {
+                // commit value
                 *lock = value;
+
+                // unblock all threads waiting for it
+                var.wake_all();
             }
 
+            // commit succeded
             true
         })
     }
 
 
     /// run a STM computation atomically
-    pub fn atomically(self) -> T {
+    pub fn atomically(&self) -> T {
         // create a log guard for initializing and cleaning up
         // the log
         let _log_guard = LogGuard::new();
@@ -191,11 +231,7 @@ impl<T: 'static> STM<T> {
             use self::StmResult::*;
 
             // run the computation
-            let res = unsafe {
-                self.intern_run()
-            };
-
-            match res {
+            match self.intern_run() {
                 // on success exit loop
                 Success(t)  => {
                     if self.log_writeback() {
@@ -213,18 +249,34 @@ impl<T: 'static> STM<T> {
 
                     // access the log to get all used variables
                     with_log(|log| {
-                        for (k, v) in log.vars.iter() {
-                            if v.read.is_some() {
-                                k.wait(ctrl.clone());
-                            }
+                        let blocking = log.vars.iter()
+                            // take only read vars
+                            .filter(|a| a.1.read.is_some())
+                            // wait for all
+                            .inspect(|a| {
+                                a.0.wait(ctrl.clone());
+                            })
+                            // check if all still contain the same data
+                            .all(|(ref var, value)| {
+                                let guard = var.value.read().unwrap();
+                                let newval = &*guard;
+                                let oldval = value.read.as_ref().unwrap();
+                                same_address(oldval, &newval)
+                            });
+
+                        // if no var has changed then block
+                        if blocking { 
+                            // propably wait until one var has changed
+                            ctrl.wait();
                         }
-                        // propably wait until one var has changed
-                        ctrl.wait();
 
                         // let others know that ctrl is dead
-                        for (k, v) in log.vars.iter() {
-                            if v.read.is_some() {
-                                k.set_dead();
+                        // it does not matter if we set too many
+                        // to dead since it may slightly reduce performance
+                        // but not break the semantics
+                        for (var, value) in &log.vars {
+                            if value.read.is_some() {
+                                var.set_dead();
                             }
                         }
                     });
@@ -239,18 +291,18 @@ impl<T: 'static> STM<T> {
     }
 
 
-
-    /// if one of both computations fails with a call to retry
-    /// then run the other one
-    ///
-    /// if both call retry then wait for any of the read cars in
-    /// both threads to change
     /*
-     * when the first computation fails, immediately rerun in without
+     * when the first computation fails, immediately rerun it without
      * trying the second one since 'or' provides an alternative to a
      * blocked computation but not for cases when a variable has changed
      * before finishing the computation
      */
+
+    /// if one of both computations fails with a call to retry
+    /// then run the other one
+    ///
+    /// if both call retry then the thread will block until any
+    /// of the vars that were read in one of the both branches changes
     pub fn or(self, other: STM<T>) -> STM<T> {
         let func = move || {
             use self::StmResult::*;
@@ -259,7 +311,7 @@ impl<T: 'static> STM<T> {
             let backup = with_log(|log| log.clone());
 
             // run the first computation
-            let s = unsafe { self.intern_run() };
+            let s = self.intern_run();
             
             match s {
                 // return success and failure
@@ -270,7 +322,7 @@ impl<T: 'static> STM<T> {
                     // use backup of log
                     let old_log = with_log(|log| mem::replace(log, backup));
                     // run other
-                    let o = unsafe { other.intern_run() };
+                    let o = other.intern_run();
 
                     // if both called retry then exit
                     if let Retry = o {
@@ -283,6 +335,43 @@ impl<T: 'static> STM<T> {
         };
 
         STM::new(func)
+    }
+
+    /// run the first and afterwards the second one
+    ///
+    /// `first.and(second)` is equal to
+    ///
+    /// ```ignore
+    /// stm!({
+    ///     stm_call!(first);
+    ///     stm_call!(second)
+    /// });
+    pub fn and<R: 'static>(self, other: STM<R>) -> STM<R> {
+        stm!({
+            stm_call!(self);
+            stm_call!(other)
+        })
+    }
+
+    /// run the first and then applies the return value to the
+    /// function `f` which returns a STM-Block that is then executed
+    ///
+    /// `first.and_then(second)` is equal to
+    ///
+    /// ```ignore
+    /// stm!({
+    ///     let x = stm_call!(first);
+    ///     stm_call!(second(x))
+    /// });
+    pub fn and_then<F, R>(self, f: F) -> STM<R>
+        where   F: Fn(T) -> STM<R>,
+                F: 'static,
+                R: 'static,
+    {
+        stm!({
+            let x = stm_call!(self);
+            stm_call!(f(x))
+        })
     }
 }
 
@@ -407,7 +496,7 @@ fn test_stm_write() {
     });
     let _ = stm.atomically();
 
-    assert_eq!(write.read_immediate(), 0);
+    assert_eq!(write.read_atomic(), 0);
 }
 
 #[test]
@@ -423,7 +512,7 @@ fn test_stm_copy() {
     });
     stm.atomically();
 
-    assert_eq!(write.read_immediate(), 42);
+    assert_eq!(write.read_atomic(), 42);
 }
 
 

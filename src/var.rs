@@ -8,9 +8,36 @@ use std::marker::PhantomData;
 use super::stm::{with_log, StmControlBlock};
 
 
+/// contains all the useful data for a Var while beeing the same type
+///
+/// The control block is accessed from other threads directly whereas `Var`
+/// is just a typesafe wrapper around it
 pub struct VarControlBlock {
+    /// list of all waiting threads protected by a mutex
     waiting_threads: Mutex<Vec<Arc<StmControlBlock>>>,
+
+    /// counter for all dead threads
+    ///
+    /// when there are many dead threads waiting for a change but
+    /// nobody changes the value then an automatic collection is
+    /// performed
     dead_threads: AtomicUsize,
+
+    /// the inner value of the Var
+    ///
+    /// It can be shared through a Arc without copying it too often
+    ///
+    /// the Arc is also used by the threads to detect changes
+    /// the value in it should not be changed or locked because
+    /// that may cause multiple threads to block unforeseen as well as
+    /// causing deadlocks
+    ///
+    /// the shared reference is protected by a `RWLock` so that multiple
+    /// threads can safely block it for ensuring atomic commits without
+    /// preventing other threads from accessing it
+    ///
+    /// starvation may occur when one thread wants to write-lock but others
+    /// hold read-locks
     pub value: RwLock<Arc<Any+Send+Sync>>,
 }
 
@@ -109,8 +136,12 @@ impl PartialOrd for VarControlBlock {
 
 
 
+/// A variable that can be used in a STM-Block
 #[derive(Clone)]
 pub struct Var<T> {
+    /// the control block is the inner of the variable
+    /// 
+    /// the rest is just the typesafe interface
     control_block: Arc<VarControlBlock>,
     /// this marker is needed so that the variable can be used in a threadsafe
     /// manner
@@ -120,6 +151,7 @@ pub struct Var<T> {
 impl<T> Var<T>
     where T: Any+Sync+Send+Clone
 {
+    /// create a new var
     pub fn new(val: T) -> Var<T> {
         Var {
             control_block: VarControlBlock::new(val),
@@ -127,28 +159,85 @@ impl<T> Var<T>
         }
     }
 
-    pub fn read_immediate(&self) -> T {
-        let val = self.control_block.value.read().unwrap();
-        let val = (&**val as &Any).downcast_ref::<T>();
-        val.expect("wrong type in Var<T>").clone()
+    /// read a value atomically
+    ///
+    /// this should be called from outside of stm and is faster
+    /// than wrapping a read in STM but is not composable
+    ///
+    /// `read_atomic` returns a clone of the value.
+    ///
+    /// If the value contains a shared reference mutating it is
+    /// a side effect which may break STM-semantics
+    ///
+    /// This is a faster alternative to 
+    ///
+    /// ```
+    /// # #[macro_use] extern crate stm;
+    /// # use stm::*;
+    /// # fn main() {
+    /// # let var = Var::new(0);
+    /// stm!(var.read_atomic())
+    ///     .atomically();
+    /// # }
+    /// ```
+    ///
+    pub fn read_atomic(&self) -> T {
+        let val = self.read_ref_atomic();
+
+        (&*val as &Any)
+            .downcast_ref::<T>()
+            .expect("wrong type in Var<T>")
+            .clone()
     }
 
-    pub fn read_ref(&self) -> Arc<Any+Send+Sync> {
-        self.control_block.value.read().unwrap().clone()
+    /// read a value atomically but return a reference
+    ///
+    /// this is mostly used internally but can be useful in
+    /// certain cases where the additional clone performed
+    /// by read_atomic is not wanted
+    pub fn read_ref_atomic(&self) -> Arc<Any+Send+Sync> {
+        self.control_block
+            .value
+            .read()
+            .unwrap()
+            .clone()
     }
 
+    /// the normal way to access a var
+    ///
+    /// it is used to read a var from inside of a STM-Block
+    ///
+    /// # Panics
+    ///
+    /// Panics when called from outside of a STM-Block
+    ///
     pub fn read(&self) -> T {
         with_log(|log| log.read_var(self))
     }
 
+    /// the normal way to write a var
+    ///
+    /// it is used to write a var from inside of a STM-Block
+    /// and does not immediately write but wait for commit
+    ///
+    /// # Panics
+    ///
+    /// Panics when called from outside of a STM-Block
+    ///
     pub fn write(&self, value: T) {
         with_log(|log| log.write_var(self, value));
     }
 
+    /// wake all threads that are waiting for this value
+    ///
+    /// this is mostly used internally
     pub fn wake_all(&self) {
         self.control_block.wake_all();
     }
 
+    /// access the control block of the var
+    ///
+    /// internal use only
     pub fn control_block(&self) -> &Arc<VarControlBlock> {
         &self.control_block
     }
@@ -156,11 +245,13 @@ impl<T> Var<T>
 
 
 
+/// test if a waiting and waking of threads works
 #[test]
 fn test_wait() {
     use std::thread;
     use std::sync::mpsc::channel;
 
+    // don't create a complete STM block
     let ctrl = Arc::new(StmControlBlock::new());
 
     let var = Var::new(vec![1,2,3,4]);
