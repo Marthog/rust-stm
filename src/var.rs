@@ -1,5 +1,4 @@
-
-use std::sync::{Arc, Semaphore, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::mem;
 use std::sync::atomic::{self, AtomicUsize};
 use std::cmp;
@@ -12,7 +11,7 @@ use super::stm::{with_log, StmControlBlock};
 pub struct VarControlBlock {
     waiting_threads: Mutex<Vec<Arc<StmControlBlock>>>,
     dead_threads: AtomicUsize,
-    pub value: RwLock<Arc<Any>>,
+    pub value: RwLock<Arc<Any+Send+Sync>>,
 }
 
 
@@ -24,7 +23,7 @@ impl VarControlBlock {
         let ctrl = VarControlBlock {
             waiting_threads: Mutex::new(Vec::new()),
             dead_threads: AtomicUsize::new(0),
-            value: RwLock::new(Arc::new(val) as Arc<Any>),
+            value: RwLock::new(Arc::new(val)),
         };
         Arc::new(ctrl)
     }
@@ -130,11 +129,11 @@ impl<T> Var<T>
 
     pub fn read_immediate(&self) -> T {
         let val = self.control_block.value.read().unwrap();
-        let val = val.downcast_ref::<T>();
+        let val = (&**val as &Any).downcast_ref::<T>();
         val.expect("wrong type in Var<T>").clone()
     }
 
-    pub fn read_ref(&self) -> Arc<Any> {
+    pub fn read_ref(&self) -> Arc<Any+Send+Sync> {
         self.control_block.value.read().unwrap().clone()
     }
 
@@ -155,12 +154,6 @@ impl<T> Var<T>
     }
 }
 
-
-
-#[derive(PartialEq, Eq)]
-pub enum VarVersion {
-    VarVersion(u64)
-}
 
 
 #[test]
@@ -197,6 +190,6 @@ fn test_wait() {
 
     let _ = tx.send(());
 
-    handle.join();
+    let _ = handle.join();
 }
 

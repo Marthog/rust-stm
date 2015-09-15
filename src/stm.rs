@@ -3,13 +3,12 @@ use std::cell::RefCell;
 use std::sync::{Arc, Semaphore};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::mem;
-use std::collections::{BTreeMap};
 use std::vec::Vec;
-use std::collections::btree_map::Entry;
-use std::any::Any;
 
 use super::log::{Log};
-use super::var::{Var, VarControlBlock};
+
+#[cfg(test)]
+use super::var::{Var};
 
 
 
@@ -18,37 +17,6 @@ use super::var::{Var, VarControlBlock};
 /// the log is optional and initially None because there is
 /// only a log inside of a STM computation
 thread_local!(static LOG: RefCell<Option<Log>> = RefCell::new(None));
-
-
-/// call a STM function from inside of a STM block
-/// 
-/// if we had control over stack unwinding we could use that
-macro_rules! stm_call {
-    ( $e:expr )     => ({
-        use $crate::stm::StmResult;
-
-        let stm: STM<_> = $e;
-        let ret = unsafe { $e.intern_run() };
-        match ret {
-            Success(s)  => s,
-            a@_         => return a,
-        }
-    })
-}
-
-
-/// declare a block that uses STM
-macro_rules! stm {
-    ( $e:expr )    => {{
-        use $crate::stm::StmResult;
-
-        let func = || {
-            let res = $e;
-            Success(res)
-        };
-        STM::new(func)
-    }}
-}
 
 
 /// a control block for a currently running STM instance
@@ -137,7 +105,7 @@ pub fn retry() -> STM<()> {
 }
 
 
-// /// type synonym for the inner of a STM calculation
+/// type synonym for the inner of a STM calculation
 type StmFunction<T> = Fn()->StmResult<T>;
 
 /// class representing a STM computation
@@ -162,7 +130,7 @@ impl<T: 'static> STM<T> {
     ///
     /// internal use only. Prefer atomically because it sets up
     /// the log and retry the computation until it has succeeded
-    unsafe fn intern_run(&self) -> StmResult<T> {
+    pub unsafe fn intern_run(&self) -> StmResult<T> {
         // can't call directly because rust assumes 
         // self.intern() to be a method call
         (&*self.intern)()
@@ -178,6 +146,9 @@ impl<T: 'static> STM<T> {
             for (k, v) in log.vars.iter() {
                 // lock the variable and read the value
                 let value = if let Some(ref written) = v.write {
+                    // if the variable is written to, unblock all threads
+                    k.wake_all();
+
                     // take write lock
                     let lock = k.value.write().unwrap();
                     // get the inner value
@@ -397,7 +368,7 @@ fn test_log_guard() {
 
 #[test]
 fn test_read_var() {
-    let guard = LogGuard::new();
+    let _guard = LogGuard::new();
     let var = Var::new(vec![1,2]);
     let x = var.read();
     
@@ -454,3 +425,5 @@ fn test_stm_copy() {
 
     assert_eq!(write.read_immediate(), 42);
 }
+
+

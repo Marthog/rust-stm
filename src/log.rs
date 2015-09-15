@@ -1,7 +1,6 @@
-use std::collections::{BTreeSet, BTreeMap};
+use std::collections::{BTreeMap};
 use std::collections::btree_map::Entry::*;
 use std::any::Any;
-use std::rc::Rc;
 use std::sync::{Arc};
 
 use super::var::{Var, VarControlBlock};
@@ -10,10 +9,10 @@ use super::var::{Var, VarControlBlock};
 #[derive(Clone)]
 pub struct LogVar {
     /// if read contains the value that was read
-    pub read: Option<Arc<Any>>,
+    pub read: Option<Arc<Any+Send+Sync>>,
 
     /// if written to contains the last value that was written
-    pub write: Option<Arc<Any>>,
+    pub write: Option<Arc<Any+Send+Sync>>,
 }
 
 impl LogVar {
@@ -24,21 +23,14 @@ impl LogVar {
         }
     }
 
-    pub fn new_read(val: Arc<Any>) -> LogVar {
+    pub fn new_read(val: Arc<Any+Send+Sync>) -> LogVar {
         LogVar {
             read: Some(val),
             write: None,
         }
     }
 
-    pub fn new_write(val: Arc<Any>) -> LogVar {
-        LogVar {
-            read: None,
-            write: Some(val),
-        }
-    }
-
-    pub fn get_val(&self) -> Arc<Any> {
+    pub fn get_val(&self) -> Arc<Any+Send+Sync> {
         if let Some(ref s) = self.write {
             s.clone()
         } else {
@@ -97,7 +89,7 @@ impl Log {
     /// commit all writes at the end of the computation
     pub fn write_var<T: Any+Send+Sync+Clone>(&mut self, var: &Var<T>, value: T) {
         // box the value
-        let boxed = Arc::new(value) as Arc<Any>;
+        let boxed = Arc::new(value);
 
         self.vars.entry(var.control_block().clone())
             .or_insert_with(LogVar::empty)
@@ -132,7 +124,7 @@ impl Log {
 
 
 #[test]
-fn testRead() {
+fn test_read() {
     let mut log = Log::new();
     let var = Var::new(vec![1,2,3,4]);
 
@@ -141,7 +133,7 @@ fn testRead() {
 }
 
 #[test]
-fn testWriteRead() {
+fn test_write_read() {
     let mut log = Log::new();
     let var = Var::new(vec![1,2]);
 
