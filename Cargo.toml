@@ -1,0 +1,4 @@
+[package]
+name = "stm"
+version = "0.1.0"
+authors = ["Marthog <Marthog@users.noreply.github.com>"]
