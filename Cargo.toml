@@ -3,12 +3,19 @@ name = "stm"
 version = "0.1.0"
 authors = ["Marthog <Marthog@users.noreply.github.com>"]
 
+description = "Implementation of Software transactional memory. Allows composable atomic operations."
+
+license = "MIT"
+homepage = "https://github.com/Marthog/rust-stm"
+repository = "https://github.com/Marthog/rust-stm"
+documentation = "http://marthog.github.io/rust-stm/target/doc/stm"
+
+readme = "README.md"
+
+keywords = ["stm", "software transactional memory", "atomic"]
+
 
 [lib]
-# The name of a target is the name of the library that will be generated. This
-# is defaulted to the name of the package or project.
-# name = "stm"
-
 # This field points at where the crate is located, relative to the Cargo.toml.
 path = "src/lib.rs"
 
@@ -25,12 +32,3 @@ bench = true
 
 # A flag for enabling documentation of this target. This is used by `cargo doc`.
 doc = true
-
-# If the target is meant to be a compiler plugin, this field must be set to true
-# for cargo to correctly compile it and make it available for all dependencies.
-plugin = false
-
-# If set to false, `cargo test` will omit the --test flag to rustc, which stops
-# it from generating a test harness. This is useful when the binary being built
-# manages the test runner itself.
-harness = true
