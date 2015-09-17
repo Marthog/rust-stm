@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["StmResult","a result of each step of a STM calculation"]],"fn":[["retry","call retry in `stm_call!` to let the STM manually run again"]],"struct":[["STM","class representing a STM computation"]]});

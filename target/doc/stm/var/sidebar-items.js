@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Var","A variable that can be used in a STM-Block"]]});
