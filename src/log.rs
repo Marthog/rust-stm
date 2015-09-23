@@ -2,6 +2,8 @@ use std::collections::{BTreeMap};
 use std::collections::btree_map::Entry::*;
 use std::any::Any;
 use std::sync::{Arc};
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use super::var::{Var, VarControlBlock};
 
@@ -60,7 +62,23 @@ pub struct Log {
     /// the `VarControlBlock` is unique because it uses it's address for comparing
     ///
     /// the logs need to be accessed in a order because otherwise 
-    pub vars: BTreeMap<Arc<VarControlBlock>, LogVar>
+    pub vars: BTreeMap<Arc<VarControlBlock>, LogVar>,
+
+
+    /// list of all deferred functions
+    ///
+    /// these are executed in order after the the STM has committed it's effect
+    ///
+    /// defered can be used to represent IO actions STM
+    ///
+    /// when one of the deferred functions panics it does
+    /// not perfom a rewind and not run the following deferred functions.
+    /// The variables are still written and kept consistent although
+    /// additional side effects are silenced and thus may cause inconsistent
+    /// data
+    ///
+    /// it is generally advised to ensure that a deferred function never panics
+    pub deferred: Rc<RefCell<Vec<Box<Fn() -> () + 'static>>>>,
 }
 
 impl Log {
@@ -70,7 +88,8 @@ impl Log {
     /// is created as a thread-local global variable
     pub fn new() -> Log {
         Log {
-            vars: BTreeMap::new()
+            vars: BTreeMap::new(),
+            deferred: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -124,12 +143,34 @@ impl Log {
     }
 
 
+    /// add a deferred function
+    ///
+    /// these are executed in order after the the STM has committed it's effect
+    ///
+    /// defered can be used to represent IO actions STM
+    ///
+    /// when one of the deferred functions panics it does
+    /// not perfom a rewind and not run the following deferred functions.
+    /// The variables are still written and kept consistent although
+    /// additional side effects are silenced and thus may cause inconsistent
+    /// data
+    ///
+    /// it is generally advised to ensure that a deferred function never panics
+    pub fn add_deferred<F>(&mut self, func: F)
+        where F: Fn() -> () + 'static
+    {
+        self.deferred.borrow_mut().push(Box::new(func) as Box<Fn()->()>);
+    }
+
+
     /// both logs called `retry`
     ///
     /// combine them into a single log to allow waiting for all reads
     ///
     /// needed for `STM::or`
     pub fn combine_after_retry(&mut self, other: Log) {
+        // free memory
+        self.deferred.borrow_mut().clear();
         // combine the reads
         for (var, value) in other.vars {
             // if read then insert
@@ -148,6 +189,7 @@ impl Log {
     /// nowhere else
     pub fn clear(&mut self) {
         self.vars.clear();
+        self.deferred.borrow_mut().clear();
     }
 }
 

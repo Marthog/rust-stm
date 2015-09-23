@@ -108,7 +108,7 @@ mod stm;
 mod log;
 mod var;
 
-pub use stm::{STM, StmResult, retry};
+pub use stm::{STM, StmResult, retry, deferred};
 
 pub use var::Var;
 

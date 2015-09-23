@@ -131,6 +131,70 @@ pub fn retry() -> STM<()> {
     STM::new(|| StmResult::Retry)
 }
 
+
+/// run a deferred function
+///
+/// these are executed in order after the the STM has committed it's effect
+///
+/// defered can be used to represent IO actions STM
+///
+/// when one of the deferred functions panics it does
+/// not perfom a rewind and not run the following deferred functions.
+/// The variables are still written and kept consistent although
+/// additional side effects are silenced and thus may cause inconsistent
+/// data
+///
+/// it is generally advised to ensure that a deferred function never panics
+///
+///
+/// deferred works also out of STM but then it immediately runs a function
+/// so it can be used from a function that has side effects like logging but
+/// still can be called from within STM without potentially doubled output.
+///
+///
+/// ** Once boxed `FnOnce` are properly supported by rust the restrictions will
+/// be relaxed from Fn to FnOnce **
+///
+/// ```
+/// use std::rc::Rc;
+/// use std::cell::Cell;
+/// # use stm::deferred;
+///
+/// let x = Rc::new(Cell::new(0));
+/// let x2 = x.clone();
+///
+/// deferred(move || {
+///     x2.set(42);
+/// });
+///
+/// assert_eq!(x.get(), 42);
+/// ```
+pub fn deferred<F>(func: F)
+    where F: Fn() -> () + 'static
+{
+    // borrow the content of log and either add a deferred function
+    // or return Some(func) and bind it do immediate
+    //
+    // we can't call the function inside of borrow_mut because
+    // having a deferred inside of a deferred would panic
+    let immediate = LOG.with(|log| {
+        match &mut *log.borrow_mut() {
+            // add to the log and consume the function
+            &mut Some(ref mut l) => {
+                l.add_deferred(func);
+                None
+            }
+            // pass the function back so that it can be called
+            &mut None    => Some(func),
+        }
+    });
+
+    if let Some(f) = immediate {
+        f();
+    }
+}
+
+
 /// type synonym for the inner of a STM calculation
 type StmFunction<T> = Fn()->StmResult<T>;
 
@@ -168,7 +232,7 @@ impl<T: 'static> STM<T> {
     /// write the log back to the variables
     ///
     /// return true for success and false if a read var has changed
-    fn log_writeback(&self) -> bool {
+    fn commit_log(&self) -> bool {
         // use two phase locking for safely writing data back to the vars
         with_log(|log| {
 
@@ -238,12 +302,11 @@ impl<T: 'static> STM<T> {
         })
     }
 
-
     /// run a STM computation atomically
     pub fn atomically(&self) -> T {
         // create a log guard for initializing and cleaning up
         // the log
-        let _log_guard = LogGuard::new();
+        let log_guard = LogGuard::new();
 
         // loop until success
         loop {
@@ -253,7 +316,22 @@ impl<T: 'static> STM<T> {
             match self.intern_run() {
                 // on success exit loop
                 Success(t)  => {
-                    if self.log_writeback() {
+                    // if the log can be committed then exit the loop
+                    // else run again
+                    if self.commit_log() {
+                        let deferred = with_log(|log| {
+                            let replacement = Vec::new();
+                            mem::replace(&mut *log.deferred.borrow_mut(), replacement)
+                        });
+
+                        // kill the log to prevent deferred runs inside of
+                        // deferred to add their stuff to the end of a
+                        // dying log
+                        mem::drop(log_guard);
+
+                        for func in deferred {
+                            func();
+                        }
                         return t;
                     }
                 }
