@@ -12,7 +12,7 @@ documentation = "http://marthog.github.io/rust-stm/target/doc/stm"
 
 readme = "README.md"
 
-keywords = ["stm", "software transactional memory", "atomic"]
+keywords = ["stm", "atomic"]
 
 
 [lib]

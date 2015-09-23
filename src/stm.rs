@@ -1,6 +1,6 @@
 
 use std::cell::RefCell;
-use std::sync::{Arc, Semaphore};
+use std::sync::{Arc, Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::mem;
 use std::vec::Vec;
@@ -26,8 +26,20 @@ thread_local!(static LOG: RefCell<Option<Log>> = RefCell::new(None));
 ///
 /// be careful when using this because you can easily create deadlocks
 pub struct StmControlBlock {
-    /// a semaphore that is used 
-    semaphore: Semaphore,
+    // a simple binary semaphore to unblock
+
+    /// boolean storing true if a still blocked
+    /// it can be put in the mutex but that may
+    /// block a thread that is currently releasing
+    /// multiple variables on writing that value
+    blocked: AtomicBool,
+
+    /// a lock needed for the condition variable
+    lock: Mutex<()>,
+
+    /// condition variable that is used for pausing and
+    /// waking the thread
+    wait_cvar: Condvar,
 
     /// atomic flag indicating that a control block is
     /// dead, meaning that it is no longer needed for waiting
@@ -39,7 +51,9 @@ impl StmControlBlock {
     /// create a new StmControlBlock
     pub fn new() -> StmControlBlock {
         StmControlBlock {
-            semaphore: Semaphore::new(0),
+            blocked: AtomicBool::new(true),
+            lock: Mutex::new(()),
+            wait_cvar: Condvar::new(),
             dead: AtomicBool::new(false),
         }
     }
@@ -48,7 +62,10 @@ impl StmControlBlock {
     ///
     /// need to be called from outside of STM
     pub fn set_changed(&self) {
-        self.semaphore.release();
+        // unblock
+        self.blocked.store(false, Ordering::SeqCst);
+        // wake thread
+        self.wait_cvar.notify_one();
     }
 
     /// block until one variable has changed
@@ -57,9 +74,12 @@ impl StmControlBlock {
     ///
     /// need to be called by the STM
     pub fn wait(&self) {
-        self.semaphore.acquire();
-        // set as dead
-        self.dead.store(true, Ordering::Relaxed);
+        let mut blocked = self.blocked.load(Ordering::SeqCst);
+        let mut lock = self.lock.lock().unwrap();
+        while blocked {
+            lock = self.wait_cvar.wait(lock).unwrap();
+            blocked = self.blocked.load(Ordering::SeqCst);
+        }
     }
 
     /// atomic flag indicating that a control block is
@@ -110,7 +130,6 @@ pub enum StmResult<T> {
 pub fn retry() -> STM<()> {
     STM::new(|| StmResult::Retry)
 }
-
 
 /// type synonym for the inner of a STM calculation
 type StmFunction<T> = Fn()->StmResult<T>;

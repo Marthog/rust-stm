@@ -29,7 +29,7 @@ impl LogVar {
 
     /// create a new var that has been read
     pub fn new_read(val: Arc<Any+Send+Sync>) -> LogVar {
-        LogVar {
+       LogVar {
             read: Some(val),
             write: None,
         }
@@ -131,12 +131,12 @@ impl Log {
     /// needed for `STM::or`
     pub fn combine_after_retry(&mut self, other: Log) {
         // combine the reads
-        for (k,v) in other.vars {
+        for (var, value) in other.vars {
             // if read then insert
-            if v.read.is_some() {
+            if value.read.is_some() {
                 self.vars.insert(
-                    k.clone(),
-                    v.clone()
+                    var.clone(),
+                    value.clone()
                 );
             }
         }

@@ -101,10 +101,6 @@
 //! and every used var increases the chance of collisions. You should
 //! keep the amount of accessed variables as low as needed.
 
-// need to be replaced by a proper semaphore implementation
-// or other alternative so that is compiles on stable
-#![feature(semaphore)]
-
 #[macro_use]
 mod macros;
 
