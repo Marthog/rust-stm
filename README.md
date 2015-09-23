@@ -1,7 +1,5 @@
 # Software Transactional Memory [![Build Status](https://travis-ci.org/Marthog/rust-stm.svg?branch=master)](https://travis-ci.org/Marthog/rust-stm)
 
-Note: The build fails for Stable because `Semaphore` is not yet stabelized. It works on nightly.
-
 
 This library implements [software transactional memory]
 (https://en.wikipedia.org/wiki/Software_transactional_memory),
