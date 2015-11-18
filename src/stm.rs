@@ -127,28 +127,28 @@ pub enum StmResult<T> {
 /// # }
 /// ```
 
-pub fn retry() -> STM<()> {
+pub fn retry() -> STM<'static, ()> {
     STM::new(|| StmResult::Retry)
 }
 
 /// type synonym for the inner of a STM calculation
-type StmFunction<T> = Fn()->StmResult<T>;
+type StmFunction<'a, T> = Fn() -> StmResult<T> + 'a;
 
 /// class representing a STM computation
-pub struct STM<T>
+pub struct STM<'a, T>
 {
     /// STM uses a boxed closure internally
-    intern: Box<Fn() -> StmResult<T>>
+    intern: Box<Fn() -> StmResult<T> + 'a>
 }
 
-impl<T: 'static> STM<T> {
+impl<'a, T: 'a> STM<'a, T> {
 
     /// create a new STM calculation from a closure
-    pub fn new<F>(func: F) -> STM<T>
-        where F: Fn() -> StmResult<T> + 'static
+    pub fn new<F>(func: F) -> STM<'a, T>
+        where F: Fn() -> StmResult<T> + 'a
     {
         STM {
-            intern: Box::new(func) as Box<StmFunction<T>>,
+            intern: Box::new(func) as Box<StmFunction<'a, T>>,
         }
     }
 
@@ -161,7 +161,7 @@ impl<T: 'static> STM<T> {
     pub fn intern_run(&self) -> StmResult<T> {
         // can't call directly because rust assumes 
         // self.intern() to be a method call
-        (&*self.intern)()
+        (self.intern)()
     }
 
 
@@ -322,7 +322,7 @@ impl<T: 'static> STM<T> {
     ///
     /// if both call retry then the thread will block until any
     /// of the vars that were read in one of the both branches changes
-    pub fn or(self, other: STM<T>) -> STM<T> {
+    pub fn or(self, other: STM<'a, T>) -> STM<'a, T> {
         let func = move || {
             use self::StmResult::*;
 
@@ -365,11 +365,11 @@ impl<T: 'static> STM<T> {
     ///     stm_call!(first);
     ///     stm_call!(second)
     /// });
-    pub fn and<R: 'static>(self, other: STM<R>) -> STM<R> {
-        stm!({
+    pub fn and<R: 'a>(self, other: STM<'a, R>) -> STM<'a, R> {
+        STM::new(move || StmResult::Success({
             stm_call!(self);
             stm_call!(other)
-        })
+        }))
     }
 
     /// run the first and then applies the return value to the
@@ -382,15 +382,13 @@ impl<T: 'static> STM<T> {
     ///     let x = stm_call!(first);
     ///     stm_call!(second(x))
     /// });
-    pub fn and_then<F, R>(self, f: F) -> STM<R>
-        where   F: Fn(T) -> STM<R>,
-                F: 'static,
-                R: 'static,
+    pub fn and_then<F: 'a, R: 'a>(self, f: F) -> STM<'a, R>
+        where   F: Fn(T) -> STM<'a, R>,
     {
-        stm!({
+        STM::new(move || StmResult::Success({
             let x = stm_call!(self);
             stm_call!(f(x))
-        })
+        }))
     }
 }
 

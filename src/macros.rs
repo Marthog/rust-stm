@@ -21,10 +21,9 @@ macro_rules! stm_call {
 #[macro_export]
 macro_rules! stm {
     ( $e:expr )    => {{
-        let func = move || {
+        let func = || {
             $crate::StmResult::Success($e)
         };
         $crate::STM::new(func)
     }}
 }
-

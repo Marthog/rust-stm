@@ -56,9 +56,8 @@
 //! # fn main() {
 //! use stm::Var;
 //! let var = Var::new(0);
-//! let var2 = var.clone(); // clone so that it can be send to a closure
 //! let modify = stm!({
-//!     var2.write(42);
+//!     var.write(42);
 //! });
 //!
 //! let x = stm!({
@@ -117,10 +116,8 @@ pub use var::Var;
 fn test_stm_macro() {
     let var = Var::new(0);
 
-    let var2 = var.clone();
-
     let stm = stm!({
-        var2.write(42);
+        var.write(42);
         0
     });
 
@@ -133,20 +130,13 @@ fn test_stm_macro() {
 fn test_stm_nested() {
     let var = Var::new(0);
 
-    let var_ref = var.clone();
-
-    let inner_stm = stm!({
-        var_ref.write(42);
-    });
-
-
+    let inner_stm = stm!(var.write(42));
     let stm = stm!({
         stm_call!(inner_stm);
         var.read()
     });
 
-    let x = stm.atomically();
-    assert_eq!(42, x);
+    assert_eq!(42, stm.atomically());
 }
 
 
