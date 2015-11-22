@@ -9,30 +9,17 @@ use super::stm::StmControlBlock;
 
 /// LogVar is used by `Log` to track which `Var` was either read or written
 #[derive(Clone)]
-pub struct LogVar {
-    /// if read contains the value that was read
-    pub read: Option<Arc<Any+Send+Sync>>,
-
-    /// if written to contains the last value that was written
-    pub write: Option<Arc<Any+Send+Sync>>,
+enum LogVar {
+    Read(Arc<Any+Send+Sync>),
+    Write(Arc<Any+Send+Sync>),
 }
 
 impl LogVar {
-    /// create ab empty LogVar
-    ///
-    /// be carefully because most code expects either `read` or `write` to be `Some`
-    pub fn empty() -> LogVar {
-        LogVar {
-            read: None,
-            write: None,
-        }
-    }
-
-    /// create a new var that has been read
-    pub fn new_read(val: Arc<Any+Send+Sync>) -> LogVar {
-       LogVar {
-            read: Some(val),
-            write: None,
+    pub fn read(&self) -> Option<Arc<Any+Send+Sync>> {
+        use self::LogVar::*;
+        match *self {
+            Read(ref val) => Some(val.clone()),
+            Write(_) => None,
         }
     }
 
@@ -41,11 +28,11 @@ impl LogVar {
     /// if the var was written to it is the value inside of write
     /// else the one in read
     pub fn get_val(&self) -> Arc<Any+Send+Sync> {
-        if let Some(ref s) = self.write {
-            s.clone()
-        } else {
-            self.read.as_ref().unwrap().clone()
-        }
+        use self::LogVar::*;
+        match *self {
+            Read(ref val) => val,
+            Write(ref val) => val,
+        }.clone()
     }
 }
 
@@ -61,7 +48,7 @@ pub struct Log {
     /// the `VarControlBlock` is unique because it uses it's address for comparing
     ///
     /// the logs need to be accessed in a order because otherwise 
-    pub vars: BTreeMap<Arc<VarControlBlock>, LogVar>
+    vars: BTreeMap<Arc<VarControlBlock>, LogVar>
 }
 
 impl Log {
@@ -101,7 +88,7 @@ impl Log {
 
                 // store in in an entry
                 entry.insert(
-                    LogVar::new_read(value.clone())
+                    LogVar::Read(value.clone())
                 );
                 value
             }
@@ -120,8 +107,7 @@ impl Log {
         let ctrl = var.control_block().clone();
         self.vars
             .entry(ctrl)
-            .or_insert_with(LogVar::empty)
-            .write = Some(boxed);
+            .or_insert_with(|| LogVar::Write(boxed));
     }
 
     /// write the log back to the variables
@@ -145,8 +131,8 @@ impl Log {
         for (var, value) in &self.vars {
             // lock the variable and read the value
             let current_value =
-                match value.write {
-                Some(ref written) => {
+                match *value {
+                LogVar::Write(ref written) => {
                     // take write lock
                     let lock = var.value.write().unwrap();
                     // get the current value
@@ -167,7 +153,7 @@ impl Log {
             };
 
             // if the value was read then compare
-            if let Some(ref original) = value.read {
+            if let LogVar::Read(ref original) = *value {
                 // if the current value is no longer that
                 // when the computation started then abort commit
                 if !same_address(&current_value, original) {
@@ -201,7 +187,7 @@ impl Log {
 
         let blocking = self.vars.iter()
             // take only read vars
-            .filter(|a| a.1.read.is_some())
+            .filter(|a| a.1.read().is_some())
             // wait for all
             .inspect(|a| {
                 a.0.wait(ctrl.clone());
@@ -210,7 +196,8 @@ impl Log {
             .all(|(ref var, value)| {
                 let guard = var.value.read().unwrap();
                 let newval = &*guard;
-                let oldval = value.read.as_ref().unwrap();
+                let old_logvar= value.read();
+                let oldval = old_logvar.as_ref().unwrap();
                 same_address(oldval, &newval)
             });
 
@@ -225,7 +212,7 @@ impl Log {
         // to dead since it may slightly reduce performance
         // but not break the semantics
         for (var, value) in &self.vars {
-            if value.read.is_some() {
+            if let LogVar::Read(_) = *value {
                 var.set_dead();
             }
         }
@@ -240,7 +227,7 @@ impl Log {
         // combine the reads
         for (var, value) in other.vars {
             // if read then insert
-            if value.read.is_some() {
+            if let LogVar::Read(_) = value {
                 self.vars.insert(
                     var.clone(),
                     value.clone()
