@@ -2,9 +2,10 @@ use std::collections::{BTreeMap};
 use std::collections::btree_map::Entry::*;
 use std::any::Any;
 use std::sync::{Arc};
+use std::mem;
 
 use super::var::{Var, VarControlBlock};
-
+use super::stm::StmControlBlock;
 
 /// LogVar is used by `Log` to track which `Var` was either read or written
 #[derive(Clone)]
@@ -123,6 +124,112 @@ impl Log {
             .write = Some(boxed);
     }
 
+    /// write the log back to the variables
+    ///
+    /// return true for success and false if a read var has changed
+    pub fn commit(&mut self) -> bool {
+        // use two phase locking for safely writing data back to the vars
+
+        // first phase: acquire locks
+        // check for correctness of the values and perform
+        // an early return if something is not consistent
+
+        // created arrays for storing the locks
+
+        // vector of locks
+        let mut read_vec = Vec::new();
+
+        // vector of tuple (variable, value, lock)
+        let mut write_vec = Vec::new();
+
+        for (var, value) in &self.vars {
+            // lock the variable and read the value
+            let current_value =
+                match value.write {
+                Some(ref written) => {
+                    // take write lock
+                    let lock = var.value.write().unwrap();
+                    // get the current value
+                    let current_value = lock.clone();
+                    // add all data to the vector
+                    write_vec.push((var, written.clone(), lock));
+                    // return the current value
+                    current_value
+                }
+                _ => {
+                    // take a read lock
+                    let lock = var.value.read().unwrap();
+                    // take the current value
+                    let current_value = lock.clone();
+                    read_vec.push(lock);
+                    current_value
+                }
+            };
+
+            // if the value was read then compare
+            if let Some(ref original) = value.read {
+                // if the current value is no longer that
+                // when the computation started then abort commit
+                if !same_address(&current_value, original) {
+                    return false;
+                }
+            }
+        }
+
+        // second phase: write back and release
+
+        // release the reads first because they are faster
+        mem::drop(read_vec);
+
+
+        for (var, value, mut lock) in write_vec {
+            // commit value
+            *lock = value;
+
+            // unblock all threads waiting for it
+            var.wake_all();
+        }
+
+        // commit succeded
+        true
+    }
+
+    /// Wait for changes
+    pub fn wait(&mut self) {
+        // create control block for waiting
+        let ctrl = Arc::new(StmControlBlock::new());
+
+        let blocking = self.vars.iter()
+            // take only read vars
+            .filter(|a| a.1.read.is_some())
+            // wait for all
+            .inspect(|a| {
+                a.0.wait(ctrl.clone());
+            })
+            // check if all still contain the same data
+            .all(|(ref var, value)| {
+                let guard = var.value.read().unwrap();
+                let newval = &*guard;
+                let oldval = value.read.as_ref().unwrap();
+                same_address(oldval, &newval)
+            });
+
+        // if no var has changed then block
+        if blocking {
+            // propably wait until one var has changed
+            ctrl.wait();
+        }
+
+        // let others know that ctrl is dead
+        // it does not matter if we set too many
+        // to dead since it may slightly reduce performance
+        // but not break the semantics
+        for (var, value) in &self.vars {
+            if value.read.is_some() {
+                var.set_dead();
+            }
+        }
+    }
 
     /// both logs called `retry`
     ///
@@ -151,6 +258,13 @@ impl Log {
     }
 }
 
+fn same_address<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
+    arc_to_address(a) == arc_to_address(b)
+}
+
+fn arc_to_address<T: ?Sized>(arc: &Arc<T>) -> usize {
+    &**arc as *const T as *const u32 as usize
+}
 
 
 #[test]
