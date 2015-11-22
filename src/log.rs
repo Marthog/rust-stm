@@ -187,18 +187,14 @@ impl Log {
 
         let blocking = self.vars.iter()
             // take only read vars
-            .filter(|a| a.1.read().is_some())
+            .filter_map(|(var, value)| value.read().map(|value| (var, value)))
             // wait for all
-            .inspect(|a| {
-                a.0.wait(ctrl.clone());
-            })
+            .inspect(|&(ref var, _)| var.wait(ctrl.clone()))
             // check if all still contain the same data
-            .all(|(ref var, value)| {
+            .all(|(ref var, ref value)| {
                 let guard = var.value.read().unwrap();
                 let newval = &*guard;
-                let old_logvar= value.read();
-                let oldval = old_logvar.as_ref().unwrap();
-                same_address(oldval, &newval)
+                same_address(value, &newval)
             });
 
         // if no var has changed then block
