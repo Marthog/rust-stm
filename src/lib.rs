@@ -142,6 +142,7 @@ fn test_stm_nested() {
 
 #[test]
 fn test_threaded() {
+    use std::time::Duration;
     use std::thread;
     use std::sync::mpsc::channel;
 
@@ -162,7 +163,7 @@ fn test_threaded() {
         let _ = tx.send(stm.atomically());
     });
 
-    thread::sleep_ms(100);
+    thread::sleep(Duration::from_millis(100));
 
     stm!({
         var.write(42);
@@ -171,6 +172,43 @@ fn test_threaded() {
     let x = rx.recv().unwrap();
 
     assert_eq!(42, x);
+}
+
+/// test if a STM calculation is rerun when a Var changes while executing
+#[test]
+fn test_read_write_interfere() {
+    use std::thread;
+    use std::time::Duration;
+
+    // create var
+    let var = Var::new(0);
+    let var_ref = var.clone();
+
+    // spawn a thread
+    let t = thread::spawn(move || {
+        stm!({
+            // read the var
+            let x = var_ref.read();
+            // ensure that x var_ref changes in between
+            thread::sleep(Duration::from_millis(200));
+
+            // write back modified data this should only
+            // happen when the value has not changed
+            var_ref.write(x+10);
+        }).atomically();
+    });
+
+    // ensure that the thread has started and already read the var
+    thread::sleep(Duration::from_millis(10));
+
+    // now change it
+    stm!({
+        var.write(32);
+    }).atomically();
+
+    // finish and compare
+    let _ = t.join();
+    assert_eq!(42, var.read_atomic());
 }
 
 /*
