@@ -5,7 +5,7 @@ authors = ["Marthog <Marthog@users.noreply.github.com>"]
 
 description = "Implementation of Software transactional memory. Allows composable atomic operations."
 
-license = "MIT"
+license = "MIT/Apache-2.0"
 homepage = "https://github.com/Marthog/rust-stm"
 repository = "https://github.com/Marthog/rust-stm"
 documentation = "http://marthog.github.io/rust-stm/target/doc/stm"
