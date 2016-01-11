@@ -1,4 +1,4 @@
-// Copyright 2015 Gunnar Bergmann
+// Copyright 2015-2016 rust-stm Developers
 //
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
 // http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
