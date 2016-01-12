@@ -258,6 +258,7 @@ impl<T> Var<T>
 fn test_wait() {
     use std::thread;
     use std::sync::mpsc::channel;
+    use std::time::Duration;
 
     // don't create a complete STM block
     let ctrl = Arc::new(StmControlBlock::new());
@@ -276,7 +277,7 @@ fn test_wait() {
     // there is no way to ensure that the semaphore has been unlocked
     let handle = thread::spawn(move || {
         // 300 ms should be enough, otherwise way to slow
-        thread::sleep_ms(300);
+        thread::sleep(Duration::from_millis(300));
         let err = rx.try_recv().is_err();
         ctrl2.set_changed();
         if err {
