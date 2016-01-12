@@ -1,6 +1,6 @@
 [package]
 name = "stm"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Marthog <Marthog@users.noreply.github.com>"]
 
 description = "Implementation of Software transactional memory. Allows composable atomic operations."

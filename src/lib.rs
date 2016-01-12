@@ -6,7 +6,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-///! This library implements [software transactional memory]
+//! This library implements [software transactional memory]
 //! (https://en.wikipedia.org/wiki/Software_transactional_memory),
 //! often abbreviated with STM.
 //!
