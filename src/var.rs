@@ -13,8 +13,8 @@ use std::cmp;
 use std::any::Any;
 use std::marker::PhantomData;
 
-use super::stm::{with_log, StmControlBlock};
-
+use super::stm::{StmControlBlock};
+use super::Transaction;
 
 /// contains all the useful data for a Var while beeing the same type
 ///
@@ -46,14 +46,14 @@ pub struct VarControlBlock {
     ///
     /// starvation may occur when one thread wants to write-lock but others
     /// hold read-locks
-    pub value: RwLock<Arc<Any+Send+Sync>>,
+    pub value: RwLock<Arc<Any + Send + Sync>>,
 }
 
 
 impl VarControlBlock {
     /// create a new empty `VarControlBlock`
     pub fn new<T>(val: T) -> Arc<VarControlBlock>
-        where T: Any+Sync+Send
+        where T: Any + Sync + Send
     {
         let ctrl = VarControlBlock {
             waiting_threads: Mutex::new(Vec::new()),
@@ -65,16 +65,16 @@ impl VarControlBlock {
 
     /// wake all threads that are waiting for the used var
     pub fn wake_all(&self) {
-        // atomically take all waiting threads from the value
+        // Atomically take all waiting threads from the value.
         let threads = {
             let mut guard = self.waiting_threads.lock().unwrap();
             let inner: &mut Vec<_> = &mut guard;
             mem::replace(inner, Vec::new())
         };
 
-        // release all the semaphores to start the thread
+        // Release all the semaphores to start the thread.
         for thread in threads {
-            // inform thread that this var has changed
+            // Inform thread that this var has changed.
             thread.set_changed();
         }
     }
@@ -82,7 +82,7 @@ impl VarControlBlock {
     /// add another thread that waits for mutations of `self`
     pub fn wait(&self, thread: Arc<StmControlBlock>) {
         let mut guard = self.waiting_threads.lock().unwrap();
-        
+
         // add new one
         guard.push(thread);
     }
@@ -99,12 +99,12 @@ impl VarControlBlock {
         let deads = self.dead_threads.fetch_add(1, atomic::Ordering::Relaxed);
 
         // if there are too many then cleanup
-        
+
         // there is a potential data race that may occure when
         // one thread reads the number and then operates on
         // outdated data but that causes just unnecessary locks
         // to occur and nothing serious
-        if deads>=64 {
+        if deads >= 64 {
             let mut guard = self.waiting_threads.lock().unwrap();
             self.dead_threads.store(0, atomic::Ordering::SeqCst);
 
@@ -123,12 +123,11 @@ impl VarControlBlock {
 
 impl PartialEq for VarControlBlock {
     fn eq(&self, other: &Self) -> bool {
-        self.get_address()==other.get_address()
+        self.get_address() == other.get_address()
     }
 }
 
-impl Eq for VarControlBlock {
-}
+impl Eq for VarControlBlock {}
 
 impl Ord for VarControlBlock {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
@@ -153,11 +152,11 @@ pub struct Var<T> {
     control_block: Arc<VarControlBlock>,
     /// this marker is needed so that the variable can be used in a threadsafe
     /// manner
-    _marker: PhantomData<T>
+    _marker: PhantomData<T>,
 }
 
 impl<T> Var<T>
-    where T: Any+Sync+Send+Clone
+    where T: Any + Sync + Send + Clone
 {
     /// create a new var
     pub fn new(val: T) -> Var<T> {
@@ -184,7 +183,7 @@ impl<T> Var<T>
     /// # use stm::*;
     /// # fn main() {
     /// # let var = Var::new(0);
-    /// stm!(var.read_atomic())
+    /// stm!(trans => var.read(trans))
     ///     .atomically();
     /// # }
     /// ```
@@ -203,7 +202,7 @@ impl<T> Var<T>
     /// this is mostly used internally but can be useful in
     /// certain cases where the additional clone performed
     /// by read_atomic is not wanted
-    pub fn read_ref_atomic(&self) -> Arc<Any+Send+Sync> {
+    pub fn read_ref_atomic(&self) -> Arc<Any + Send + Sync> {
         self.control_block
             .value
             .read()
@@ -219,8 +218,8 @@ impl<T> Var<T>
     ///
     /// Panics when called from outside of a STM-Block
     ///
-    pub fn read(&self) -> T {
-        with_log(|log| log.read_var(self))
+    pub fn read(&self, transaction: &mut Transaction) -> T {
+        transaction.read(&self)
     }
 
     /// the normal way to write a var
@@ -232,10 +231,10 @@ impl<T> Var<T>
     ///
     /// Panics when called from outside of a STM-Block
     ///
-    pub fn write(&self, value: T) {
-        with_log(|log| log.write_var(self, value));
+    pub fn write(&self, transaction: &mut Transaction, value: T) {
+        transaction.write(&self, value);
     }
-
+    
     /// wake all threads that are waiting for this value
     ///
     /// this is mostly used internally
@@ -252,7 +251,6 @@ impl<T> Var<T>
 }
 
 
-
 /// test if a waiting and waking of threads works
 #[test]
 fn test_wait() {
@@ -263,7 +261,7 @@ fn test_wait() {
     // don't create a complete STM block
     let ctrl = Arc::new(StmControlBlock::new());
 
-    let var = Var::new(vec![1,2,3,4]);
+    let var = Var::new(vec![1, 2, 3, 4]);
 
     let (tx, rx) = channel();
 
@@ -292,4 +290,3 @@ fn test_wait() {
 
     let _ = handle.join();
 }
-

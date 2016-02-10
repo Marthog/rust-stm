@@ -22,7 +22,7 @@
 //! other threads may interfer in between of these actions.
 //! Applying another lock may lead to common sources of errors
 //! like deadlocks and forgotten locks.
-//! 
+//!
 //! Unlike locks Software transactional memory is composable.
 //! It is typically implemented by writing all read and write
 //! operations in a log. When the action has finished, the reads
@@ -31,14 +31,14 @@
 //! or the result is discarded and the computation run again.
 //!
 //! # Usage
-//! 
+//!
 //! STM operations are safed inside the type `STM<T>` where T
 //! is the return type of the inner operation. They are created with `stm!`:
 //!
 //! ```
 //! # #[macro_use] extern crate stm;
 //! # fn main() {
-//! let transaction = stm!({
+//! let transaction = stm!(trans => {
 //!     // some action
 //!     // return value (or empty for unit)
 //! });
@@ -49,7 +49,7 @@
 //! ```
 //! # #[macro_use] extern crate stm;
 //! # fn main() {
-//! # let transaction = stm!({
+//! # let transaction = stm!(trans => {
 //! # });
 //! transaction.atomically();
 //! # }
@@ -64,13 +64,13 @@
 //! # fn main() {
 //! use stm::Var;
 //! let var = Var::new(0);
-//! let modify = stm!({
-//!     var.write(42);
+//! let modify = stm!(trans => {
+//!     var.write(trans, 42);
 //! });
 //!
-//! let x = stm!({
-//!     stm_call!(modify);
-//!     var.read()  // return the value saved in var
+//! let x = stm!(trans => {
+//!     stm_call!(trans, modify);
+//!     var.read(trans) // return the value saved in var
 //! }).atomically();
 //!
 //! println!("var = {}", x);
@@ -98,7 +98,7 @@
 //! to modify it since the inner still points to the original value.
 //! * Don't call `Var::read` or `Var::write` from outside of a STM block.
 //! Instead start a STM or use `Var::read_atomic` for it.
-//! 
+//!
 //!
 //! # Speed
 //! Generally keep your atomic blocks as small as possible bacause
@@ -112,41 +112,38 @@
 mod macros;
 
 mod stm;
-mod log;
+mod transaction;
 mod var;
 
 pub use stm::{STM, StmResult, retry};
-
 pub use var::Var;
+pub use transaction::Transaction;
 
 
 #[test]
 fn test_stm_macro() {
     let var = Var::new(0);
 
-    let stm = stm!({
-        var.write(42);
+    let stm = stm!(stm => {
+        stm.write(&var, 42);
         0
     });
 
     stm.atomically();
 }
 
-
-
 #[test]
 fn test_stm_nested() {
     let var = Var::new(0);
 
-    let inner_stm = stm!(var.write(42));
-    let stm = stm!({
-        stm_call!(inner_stm);
-        var.read()
+    let inner_stm = stm!(stm => stm.write(&var, 42));
+    let calc = stm!(stm => {
+        stm_call!(stm, inner_stm);
+        stm.read(&var)
     });
 
-    assert_eq!(42, stm.atomically());
+    assert_eq!(42, calc.atomically());
 }
-
 
 #[test]
 fn test_threaded() {
@@ -160,10 +157,10 @@ fn test_threaded() {
 
     let var_ref = var.clone();
     thread::spawn(move || {
-        let stm = stm!({
-            let x = var_ref.read();
-            if x==0 {
-                stm_call!(retry());
+        let stm = stm!(log => {
+            let x = log.read(&var_ref);
+            if x == 0 {
+                stm_call!(log, retry());
             }
             x
         });
@@ -173,9 +170,10 @@ fn test_threaded() {
 
     thread::sleep(Duration::from_millis(100));
 
-    stm!({
-        var.write(42);
-    }).atomically();
+    stm!(log => {
+        log.write(&var, 42);
+    })
+        .atomically();
 
     let x = rx.recv().unwrap();
 
@@ -194,51 +192,52 @@ fn test_read_write_interfere() {
 
     // spawn a thread
     let t = thread::spawn(move || {
-        stm!({
+        stm!(log => {
             // read the var
-            let x = var_ref.read();
+            let x = var_ref.read(log);
             // ensure that x var_ref changes in between
             thread::sleep(Duration::from_millis(200));
 
             // write back modified data this should only
             // happen when the value has not changed
-            var_ref.write(x+10);
-        }).atomically();
+            var_ref.write(log, x + 10);
+        })
+            .atomically();
     });
 
     // ensure that the thread has started and already read the var
     thread::sleep(Duration::from_millis(10));
 
     // now change it
-    stm!({
-        var.write(32);
-    }).atomically();
+    stm!(log => {
+        var.write(log, 32);
+    })
+        .atomically();
 
     // finish and compare
     let _ = t.join();
     assert_eq!(42, var.read_atomic());
 }
 
-/*
-#[bench]
-fn bench_counter_stm(bench: &mut Bencher) {
-    let var = Var::new(0);
-
-    let stm = stm!({
-        let x = var.read();
-        var.write(x+1);
-    });
-
-    b.iter(|| stm.atomically());
-}
-
-#[bench]
-fn bench_counter_lock(bench: &mut Bencher) {
-    let var = Mutex::new(0); 
-
-    b.iter(|| {
-        let guard = var.lock().unwrap();
-        *guard += 1;
-    });
-}
-*/
+// #[bench]
+// fn bench_counter_stm(bench: &mut Bencher) {
+// let var = Var::new(0);
+//
+// let stm = stm!({
+// let x = var.read();
+// var.write(x+1);
+// });
+//
+// b.iter(|| stm.atomically());
+// }
+//
+// #[bench]
+// fn bench_counter_lock(bench: &mut Bencher) {
+// let var = Mutex::new(0);
+//
+// b.iter(|| {
+// let guard = var.lock().unwrap();
+// guard += 1;
+// });
+// }
+//

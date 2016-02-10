@@ -1,5 +1,3 @@
-// Copyright 2015-2016 rust-stm Developers
-//
 // Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
 // http://www.apache.org/licenses/LICENSE-2.0> or the MIT license
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
@@ -12,10 +10,10 @@
 /// if we had control over stack unwinding we could use that
 #[macro_export]
 macro_rules! stm_call {
-    ( $e:expr )     => ({
+    ( $log:expr , $e:expr )     => ({
         use $crate::StmResult::*;
 
-        let ret = $e.intern_run();
+        let ret = $e.intern_run($log);
         match ret {
             Success(s)  => s,
             Retry       => return Retry,
@@ -28,10 +26,9 @@ macro_rules! stm_call {
 /// declare a block that uses STM
 #[macro_export]
 macro_rules! stm {
-    ( $e:expr )    => {{
-        let func = || {
+    ( $i:ident => $e:expr )    => {{
+        $crate::STM::new(|$i| {
             $crate::StmResult::Success($e)
-        };
-        $crate::STM::new(func)
+        })
     }}
 }
