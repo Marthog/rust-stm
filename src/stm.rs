@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::Transaction;
 
+#[cfg(test)]
+use super::Var;
 
 /// a control block for a currently running STM instance
 ///
@@ -114,13 +116,13 @@ pub enum StmResult<T> {
 /// # fn main() {
 /// use stm::retry;
 /// let infinite_retry = stm!(trans => {
-///     stm_call!(trans, retry());
+///     stm_try!(retry());
 /// });
 /// # }
 /// ```
 
-pub fn retry() -> STM<'static, ()> {
-    STM::new(|_| StmResult::Retry)
+pub fn retry<T>() -> StmResult<T> {
+    StmResult::Retry
 }
 
 /// type synonym for the inner of a STM calculation
@@ -146,7 +148,7 @@ impl<'a, T: 'a> STM<'a, T> {
     /// the log and retry the computation until it has succeeded
     ///
     /// internal use only
-    pub fn intern_run(&self, log: &mut Transaction) -> StmResult<T> {
+    pub fn run(&self, log: &mut Transaction) -> StmResult<T> {
         // can't call directly because rust assumes
         // self.intern() to be a method call
         (self.intern)(log)
@@ -163,7 +165,7 @@ impl<'a, T: 'a> STM<'a, T> {
             use self::StmResult::*;
 
             // run the computation
-            match self.intern_run(&mut log) {
+            match self.run(&mut log) {
                 // on success exit loop
                 Success(t) => {
                     if log.log_writeback() {
@@ -213,11 +215,9 @@ impl<'a, T: 'a> STM<'a, T> {
     ///     stm_call!(second)
     /// });
     pub fn and<R: 'a>(self, other: STM<'a, R>) -> STM<'a, R> {
-        STM::new(move |log| {
-            StmResult::Success({
-                stm_call!(log, self);
-                stm_call!(log, other)
-            })
+        STM::new(move |trans| {
+            stm_call!(trans, self);
+            other.run(trans)
         })
     }
 
@@ -243,19 +243,18 @@ impl<'a, T: 'a> STM<'a, T> {
     }
 }
 
-/*
 #[test]
 fn test_read_var() {
-    let stm = Transaction::new();
+    let mut stm = Transaction::new();
     let var = Var::new(vec![1, 2]);
-    let x = var.read();
+    let x = var.read(&mut stm);
 
     assert_eq!(x, [1, 2]);
 }
 
 #[test]
 fn test_stm_simple() {
-    let stm = STM::new(|| StmResult::Success(42));
+    let stm = STM::new(|_| StmResult::Success(42));
     let x = stm.atomically();
     assert_eq!(x, 42);
 }
@@ -265,8 +264,8 @@ fn test_stm_simple() {
 fn test_stm_read() {
     let read = Var::new(42);
 
-    let stm = STM::new(move || {
-        let r = read.read();
+    let stm = STM::new(move |trans| {
+        let r = read.read(trans);
         StmResult::Success(r)
     });
     let x = stm.atomically();
@@ -279,8 +278,8 @@ fn test_stm_write() {
     let write = Var::new(42);
 
     let writecp = write.clone();
-    let stm = STM::new(move || {
-        writecp.write(0);
+    let stm = STM::new(move |trans| {
+        writecp.write(trans, 0);
         StmResult::Success(())
     });
     let _ = stm.atomically();
@@ -294,13 +293,12 @@ fn test_stm_copy() {
     let write = Var::new(0);
 
     let writecp = write.clone();
-    let stm = STM::new(move || {
-        let r = read.read();
-        writecp.write(r);
+    let stm = STM::new(move |trans| {
+        let r = read.read(trans);
+        writecp.write(trans, r);
         StmResult::Success(())
     });
     stm.atomically();
 
     assert_eq!(write.read_atomic(), 42);
 }
-*/

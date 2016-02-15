@@ -160,7 +160,7 @@ fn test_threaded() {
         let stm = stm!(log => {
             let x = log.read(&var_ref);
             if x == 0 {
-                stm_call!(log, retry());
+                stm_try!(retry());
             }
             x
         });

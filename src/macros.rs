@@ -5,23 +5,26 @@
 // except according to those terms.
 
 
-/// call a STM function from inside of a STM block
-/// 
-/// if we had control over stack unwinding we could use that
+/// Call a STM function from inside of a STM block.
 #[macro_export]
 macro_rules! stm_call {
-    ( $log:expr , $e:expr )     => ({
+    ( $log:expr , $e:expr )     => (
+        stm_try!($e.run($log))
+    )
+}
+
+#[macro_export]
+macro_rules! stm_try {
+    ( $e:expr )     => ({
         use $crate::StmResult::*;
 
-        let ret = $e.intern_run($log);
-        match ret {
+        match $e {
             Success(s)  => s,
             Retry       => return Retry,
             Failure     => return Failure
         }
     })
 }
-
 
 /// declare a block that uses STM
 #[macro_export]

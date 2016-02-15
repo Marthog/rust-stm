@@ -16,45 +16,139 @@ use super::var::{Var, VarControlBlock};
 use super::{STM, StmResult};
 use super::stm::StmControlBlock;
 
+type ArcAny = Arc<Any + Send + Sync>;
 
 /// LogVar is used by `Log` to track which `Var` was either read or written
 #[derive(Clone)]
-pub struct LogVar {
-    /// if read contains the value that was read
-    pub read: Option<Arc<Any + Send + Sync>>,
+pub enum LogVar {
+    /// Var has been read.
+    Read(ArcAny),
+    
+    /// Var has been written and no dependency on the original exists.
+    ///
+    /// There is no need to check for consistency.
+    Write(ArcAny),
 
-    /// if written to contains the last value that was written
-    pub write: Option<Arc<Any + Send + Sync>>,
+    /// Var has been read first and then written.
+    ///
+    /// It needs to be checked for consistency.
+    ReadWrite(ArcAny, ArcAny),
+
+    /// Var has been read on blocked path.
+    ///
+    /// Don't check for consistency, but block on Var,
+    /// so that the threat wakes up when the first path
+    /// has been unlocked.
+    ReadObsolete(ArcAny),
+
+    /// Var has been read on blocked path and then written to.
+    ///
+    /// Don't check for consistency, but block on Var,
+    /// so that the threat wakes up when the first path
+    /// has been unlocked.
+    ReadObsoleteWrite(ArcAny, ArcAny)
 }
 
+
 impl LogVar {
-    /// create an empty LogVar
-    ///
-    /// be carefully because most code expects either `read` or `write` to be `Some`
-    pub fn empty() -> LogVar {
-        LogVar {
-            read: None,
-            write: None,
+    /// read a value and potentially upgrade the state
+    pub fn read(&mut self) -> ArcAny {
+        use self::LogVar::*;
+        let this = self.clone();
+
+        match this {
+            Read(v) | Write(v) | ReadWrite(_,v) | ReadObsoleteWrite(_,v)     => v,
+            ReadObsolete(v)           => {
+                *self = Read(v.clone());
+                v
+            }
+        }
+    }
+    
+    /// write a value and potetially upgrade the state
+    pub fn write(&mut self, w: ArcAny)
+    {
+        use self::LogVar::*;
+        // TODO: replace with unsafe
+        let this = self.clone();
+        *self = match this {
+            Write(_)    => Write(w),
+            ReadObsolete(r) | ReadObsoleteWrite(r, _)
+                => ReadObsoleteWrite(r, w),
+            Read(r) | ReadWrite(r, _)
+                => ReadWrite(r, w),
+        };
+    }
+
+    /// turn this into an obsolete version
+    pub fn obsolete(self) -> Option<LogVar>
+    {
+        use self::LogVar::*;
+        self.into_read_value()
+            .map(|a| ReadObsolete(a))
+    }
+
+    pub fn into_write_value(self) -> Option<ArcAny> {
+        use self::LogVar::*;
+
+        // use explicit match, so that we don't forget to update it   
+        match self {
+            Write(v) | ReadWrite(_,v) | ReadObsoleteWrite(_,v) => Some(v),
+            Read(_) | ReadObsolete(_) => None
         }
     }
 
-    /// create a new var that has been read
-    pub fn new_read(val: Arc<Any + Send + Sync>) -> LogVar {
-        LogVar {
-            read: Some(val),
-            write: None,
+    pub fn into_read_value(self) -> Option<ArcAny> {
+        use self::LogVar::*;
+        match self {
+            // Throw away the reads and set the writes to obsolete.
+            Read(v) | ReadWrite(v,_) | ReadObsolete(v) | ReadObsoleteWrite(v,_)
+                => Some(v),
+            Write(_)    => None,
         }
     }
 
-    /// get the value
-    ///
-    /// if the var was written to it is the value inside of write
-    /// else the one in read
-    pub fn get_val(&self) -> Arc<Any + Send + Sync> {
-        if let Some(ref s) = self.write {
-            s.clone()
-        } else {
-            self.read.as_ref().unwrap().clone()
+
+    pub fn for_consistency_check(self) -> Option<ArcAny> {
+        use self::LogVar::*;
+        match self {
+            // Throw away the reads and set the writes to obsolete.
+            Read(r) | ReadWrite(r,_)  => Some(r),
+            _    => None,
+        }
+    }
+
+    /// Return if a value has been read and needs to be checked
+    /// for consistency.
+    pub fn needs_consistence_check(&self) -> bool {
+        use self::LogVar::*;
+
+        // use explicit match, so that we don't forget to update it   
+        match *self {
+            Read(_) | ReadWrite(_,_) => true,
+            Write(_) | ReadObsolete(_) | ReadObsoleteWrite(_,_) => false,
+        }
+    }
+    /// Return true if a value has been read on any path and we need
+    /// to block on it, to be woken up on change.
+    pub fn may_block_on(&self) -> bool {
+        use self::LogVar::*;
+
+        // use explicit match, so that we don't forget to update it   
+        match *self {
+            Read(_) | ReadWrite(_,_) | ReadObsolete(_) | ReadObsoleteWrite(_,_) => true,
+            Write(_) => false
+        }
+    }
+
+    /// Return if a value needs to be updated
+    pub fn is_write(&self) -> bool {
+        use self::LogVar::*;
+
+        // use explicit match, so that we don't forget to update it   
+        match self.clone() {
+            Write(v) | ReadWrite(v,_) | ReadObsoleteWrite(v,_) => false,
+            Read(_) | ReadObsolete(_) => true
         }
     }
 }
@@ -98,7 +192,7 @@ impl Transaction {
         let value = match self.vars.entry(ctrl) {
 
             // If the variable has been accessed before, then load that value.
-            Occupied(entry) => entry.get().get_val(),
+            Occupied(mut entry) => entry.get_mut().read(),
 
             // Else load the variable statically.
             Vacant(entry) => {
@@ -106,7 +200,7 @@ impl Transaction {
                 let value = var.read_ref_atomic();
 
                 // Store in in an entry.
-                entry.insert(LogVar::new_read(value.clone()));
+                entry.insert(LogVar::Read(value.clone()));
                 value
             }
         };
@@ -122,10 +216,10 @@ impl Transaction {
         let boxed = Arc::new(value);
 
         let ctrl = var.control_block().clone();
-        self.vars
-            .entry(ctrl)
-            .or_insert_with(LogVar::empty)
-            .write = Some(boxed);
+        match self.vars.entry(ctrl) {
+            Occupied(mut entry)     => entry.get_mut().write(boxed),
+            Vacant(entry)       => { entry.insert(LogVar::Write(boxed)); }
+        }
     }
 
     pub fn or<'a, T>(&mut self, first: &STM<'a, T>, second: &STM<'a, T>) -> StmResult<T> {
@@ -137,7 +231,7 @@ impl Transaction {
         };
 
         // Run the first computation.
-        let f = first.intern_run(self);
+        let f = first.run(self);
 
         match f {
             // Return success and failure directly
@@ -146,36 +240,31 @@ impl Transaction {
 
             // Run other on manual retry call.
             Retry => {
+                // swap, so that self is the current run
+                mem::swap(self, &mut copy);
+
                 // Run other action.
-                let s = second.intern_run(&mut copy);
+                let s = second.run(self);
 
                 // If both called retry then exit.
-                if let Retry = s {
-                    // Combine both logs so that all reads are considered
-
-                    // TODO: combine even on Success, so that we can block
-                    // correctly if retry is called after the join, so that
-                    // we wait on either of them to change.
-                    //
-                    // We still need to verify just the one path during commit.
-                    self.combine_after_retry(copy);
+                match s {
+                    Failure         => Failure,
+                    s@Success(_) | s@Retry => {
+                        self.combine(copy);
+                        s
+                    }
                 }
-                // Return the result of the second action.
-                s
             }
         }
     }
 
-
-    /// Both logs called `retry`.
-    ///
-    /// Combine them into a single log to allow waiting for all reads.
-    fn combine_after_retry(&mut self, other: Transaction) {
-        // combine the reads
+    /// Combine two logs into a single log to allow waiting for all reads.
+    fn combine(&mut self, other: Transaction) {
+        // combine reads
         for (var, value) in other.vars {
-            // if read then insert
-            if value.read.is_some() {
-                self.vars.insert(var.clone(), value.clone());
+            // only insert new values
+            if let Some(value) = value.obsolete() {
+                self.vars.entry(var).or_insert(value);
             }
         }
     }
@@ -192,20 +281,25 @@ impl Transaction {
         // create control block for waiting
         let ctrl = Arc::new(StmControlBlock::new());
 
-        let blocking = self.vars.iter()
-            // take only read vars
-            .filter(|a| a.1.read.is_some())
-            // wait for all
-            .inspect(|a| {
-                a.0.wait(ctrl.clone());
+        let vars = mem::replace(&mut self.vars, BTreeMap::new());
+        let mut reads = Vec::new();
+            
+        let blocking = vars.into_iter()
+            .filter_map(|(a, b)| {
+                b.into_read_value()
+                    .map(|b| (a, b))
             })
             // check if all still contain the same data
-            .all(|(ref var, value)| {
-                // Take read lock and read value.
-                let guard = var.value.read().unwrap();
-                let newval = &*guard;
-                let oldval = value.read.as_ref().unwrap();
-                same_address(oldval, &newval)
+            .all(|(var, value)| {
+                var.wait(ctrl.clone());
+                let x = {
+                    // Take read lock and read value.
+                    let guard = var.value.read().unwrap();
+                    let newval = &*guard;
+                    same_address(&value, &newval)
+                };
+                reads.push(var);
+                x
             });
 
         // if no var has changed then block
@@ -218,10 +312,8 @@ impl Transaction {
         // It does not matter, if we set too many
         // to dead since it may slightly reduce performance
         // but not break the semantics.
-        for (var, value) in &self.vars {
-            if value.read.is_some() {
-                var.set_dead();
-            }
+        for var in &reads {
+            var.set_dead();
         }
     }
 
@@ -229,6 +321,8 @@ impl Transaction {
     ///
     /// return true for success and false if a read var has changed
     pub fn log_writeback(&mut self) -> bool {
+        // Replace with new structure, so that we don't have to copy.
+        let vars = mem::replace(&mut self.vars, BTreeMap::new());
         // Use two phase locking for safely writing data back to the vars.
 
         // First phase: acquire locks.
@@ -242,32 +336,34 @@ impl Transaction {
         // vector of tuple (variable, value, lock)
         let mut write_vec = Vec::new();
 
-        for (var, value) in &self.vars {
+        for (var, value) in &vars {
+            use self::LogVar::*;
             // lock the variable and read the value
             let current_value;
-            match value.write {
-                Some(ref written) => {
+
+            match value {
+                &Write(ref w) | &ReadWrite(_,ref w) | &ReadObsoleteWrite(_,ref w) => {
                     // take write lock
                     let lock = var.value.write().unwrap();
                     // get the current value
                     current_value = lock.clone();
                     // add all data to the vector
-                    write_vec.push((var, written.clone(), lock));
+                    write_vec.push((var, w, lock));
                 }
-                _ => {
+                &ReadObsolete(ref v) => { current_value = v.clone(); }
+                &Read(_) => {
                     // take a read lock
                     let lock = var.value.read().unwrap();
                     // take the current value
                     current_value = lock.clone();
                     read_vec.push(lock);
                 }
-            };
+            }
 
-            // if the value was read then compare
-            if let Some(ref original) = value.read {
+            if let Some(r) = value.clone().for_consistency_check() {
                 // If the current value is no longer that
                 // consistent to the computation start, then abort commit.
-                if !same_address(&current_value, original) {
+                if !same_address(&current_value, &r) {
                     return false;
                 }
             }
@@ -275,12 +371,12 @@ impl Transaction {
 
         // Second phase: write back and release
 
-        // Release the reads first because they are faster
+        // Release the reads first.
         mem::drop(read_vec);
 
         for (var, value, mut lock) in write_vec {
             // commit value
-            *lock = value;
+            *lock = value.clone();
 
             // Unblock all threads waiting for it.
             var.wake_all();
@@ -289,7 +385,6 @@ impl Transaction {
         // commit succeded
         true
     }
-
 }
 
 
