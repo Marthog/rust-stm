@@ -16,11 +16,11 @@ use super::var::{Var, VarControlBlock};
 use super::{STM, StmResult};
 use super::stm::StmControlBlock;
 
-type ArcAny = Arc<Any + Send + Sync>;
+pub type ArcAny = Arc<Any + Send + Sync>;
 
 /// LogVar is used by `Log` to track which `Var` was either read or written
 #[derive(Clone)]
-pub enum LogVar {
+enum LogVar {
     /// Var has been read.
     Read(ArcAny),
     
@@ -88,16 +88,6 @@ impl LogVar {
             .map(|a| ReadObsolete(a))
     }
 
-    pub fn into_write_value(self) -> Option<ArcAny> {
-        use self::LogVar::*;
-
-        // use explicit match, so that we don't forget to update it   
-        match self {
-            Write(v) | ReadWrite(_,v) | ReadObsoleteWrite(_,v) => Some(v),
-            Read(_) | ReadObsolete(_) => None
-        }
-    }
-
     pub fn into_read_value(self) -> Option<ArcAny> {
         use self::LogVar::*;
         match self {
@@ -105,50 +95,6 @@ impl LogVar {
             Read(v) | ReadWrite(v,_) | ReadObsolete(v) | ReadObsoleteWrite(v,_)
                 => Some(v),
             Write(_)    => None,
-        }
-    }
-
-
-    pub fn for_consistency_check(self) -> Option<ArcAny> {
-        use self::LogVar::*;
-        match self {
-            // Throw away the reads and set the writes to obsolete.
-            Read(r) | ReadWrite(r,_)  => Some(r),
-            _    => None,
-        }
-    }
-
-    /// Return if a value has been read and needs to be checked
-    /// for consistency.
-    pub fn needs_consistence_check(&self) -> bool {
-        use self::LogVar::*;
-
-        // use explicit match, so that we don't forget to update it   
-        match *self {
-            Read(_) | ReadWrite(_,_) => true,
-            Write(_) | ReadObsolete(_) | ReadObsoleteWrite(_,_) => false,
-        }
-    }
-    /// Return true if a value has been read on any path and we need
-    /// to block on it, to be woken up on change.
-    pub fn may_block_on(&self) -> bool {
-        use self::LogVar::*;
-
-        // use explicit match, so that we don't forget to update it   
-        match *self {
-            Read(_) | ReadWrite(_,_) | ReadObsolete(_) | ReadObsoleteWrite(_,_) => true,
-            Write(_) => false
-        }
-    }
-
-    /// Return if a value needs to be updated
-    pub fn is_write(&self) -> bool {
-        use self::LogVar::*;
-
-        // use explicit match, so that we don't forget to update it   
-        match self.clone() {
-            Write(v) | ReadWrite(v,_) | ReadObsoleteWrite(v,_) => false,
-            Read(_) | ReadObsolete(_) => true
         }
     }
 }
@@ -295,8 +241,7 @@ impl Transaction {
                 let x = {
                     // Take read lock and read value.
                     let guard = var.value.read().unwrap();
-                    let newval = &*guard;
-                    same_address(&value, &newval)
+                    same_address(&value, &guard)
                 };
                 reads.push(var);
                 x
@@ -339,32 +284,41 @@ impl Transaction {
         for (var, value) in &vars {
             use self::LogVar::*;
             // lock the variable and read the value
-            let current_value;
 
             match value {
-                &Write(ref w) | &ReadWrite(_,ref w) | &ReadObsoleteWrite(_,ref w) => {
+                // We need to take a write lock.
+                &Write(ref w) | &ReadObsoleteWrite(_,ref w)=> {
                     // take write lock
                     let lock = var.value.write().unwrap();
-                    // get the current value
-                    current_value = lock.clone();
                     // add all data to the vector
                     write_vec.push((var, w, lock));
                 }
-                &ReadObsolete(ref v) => { current_value = v.clone(); }
-                &Read(_) => {
+                
+                // We need to check for consistency and
+                // take a write lock.
+                &ReadWrite(ref original,ref w) => {
+                    // take write lock
+                    let lock = var.value.write().unwrap();
+
+                    if !same_address(&lock, original) {
+                        return false;
+                    }
+                    // add all data to the vector
+                    write_vec.push((var, w, lock));
+                }
+                // Nothing to do. ReadObsolete is only needed for blocking, not
+                // for consistency checks.
+                &ReadObsolete(_) => { }
+                // Take read lock and check for consistency.
+                &Read(ref original) => {
                     // take a read lock
                     let lock = var.value.read().unwrap();
-                    // take the current value
-                    current_value = lock.clone();
-                    read_vec.push(lock);
-                }
-            }
 
-            if let Some(r) = value.clone().for_consistency_check() {
-                // If the current value is no longer that
-                // consistent to the computation start, then abort commit.
-                if !same_address(&current_value, &r) {
-                    return false;
+                    if !same_address(&lock, original) {
+                        return false;
+                    }
+
+                    read_vec.push(lock);
                 }
             }
         }
