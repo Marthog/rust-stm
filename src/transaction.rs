@@ -237,7 +237,7 @@ impl Transaction {
             })
             // check if all still contain the same data
             .all(|(var, value)| {
-                var.wait(ctrl.clone());
+                var.wait(&ctrl);
                 let x = {
                     // Take read lock and read value.
                     let guard = var.value.read().unwrap();
@@ -247,7 +247,7 @@ impl Transaction {
                 x
             });
 
-        // if no var has changed then block
+        // If no var has changed, then block.
         if blocking {
             // propably wait until one var has changed
             ctrl.wait();

@@ -6,7 +6,7 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Weak, Mutex, RwLock};
 use std::mem;
 use std::sync::atomic::{self, AtomicUsize};
 use std::cmp;
@@ -22,7 +22,7 @@ use super::Transaction;
 /// is just a typesafe wrapper around it
 pub struct VarControlBlock {
     /// list of all waiting threads protected by a mutex
-    waiting_threads: Mutex<Vec<Arc<StmControlBlock>>>,
+    waiting_threads: Mutex<Vec<Weak<StmControlBlock>>>,
 
     /// counter for all dead threads
     ///
@@ -72,6 +72,10 @@ impl VarControlBlock {
             mem::replace(inner, Vec::new())
         };
 
+        // Take all, that are still alive.
+        let threads = threads.iter()
+            .filter_map(Weak::upgrade);
+
         // Release all the semaphores to start the thread.
         for thread in threads {
             // Inform thread that this var has changed.
@@ -79,12 +83,11 @@ impl VarControlBlock {
         }
     }
 
-    /// add another thread that waits for mutations of `self`
-    pub fn wait(&self, thread: Arc<StmControlBlock>) {
+    /// Add another thread, that waits for mutations of `self`.
+    pub fn wait(&self, thread: &Arc<StmControlBlock>) {
         let mut guard = self.waiting_threads.lock().unwrap();
 
-        // add new one
-        guard.push(thread);
+        guard.push(Arc::downgrade(thread));
     }
 
     /// mark another `StmControlBlock` as dead
@@ -109,7 +112,7 @@ impl VarControlBlock {
             self.dead_threads.store(0, atomic::Ordering::SeqCst);
 
             // remove all dead ones possibly free up the memory
-            guard.retain(|t| !t.is_dead());
+            guard.retain(|t| t.upgrade().is_some());
         }
     }
 
@@ -266,7 +269,7 @@ fn test_wait() {
     let (tx, rx) = channel();
 
     // add to list of blocked things
-    var.control_block.wait(ctrl.clone());
+    var.control_block.wait(&ctrl);
     // wake me again
     var.wake_all();
 

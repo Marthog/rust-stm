@@ -20,13 +20,13 @@ use super::Var;
 /// STM blocks on all read variables if retry was called
 /// this control block is used to let the vars inform the STM instance
 ///
-/// be careful when using this because you can easily create deadlocks
+/// Be careful when using this, because you can easily create deadlocks.
 pub struct StmControlBlock {
     // a simple binary semaphore to unblock
-    /// boolean storing true if a still blocked
-    /// it can be put in the mutex but that may
-    /// block a thread that is currently releasing
-    /// multiple variables on writing that value
+    /// boolean storing true, if the ControlBlock is still blocked.
+    /// It could be put in the mutex, but that may
+    /// block a thread, that is currently releasing
+    /// multiple variables on writing that value.
     blocked: AtomicBool,
 
     /// a lock needed for the condition variable
@@ -35,10 +35,6 @@ pub struct StmControlBlock {
     /// condition variable that is used for pausing and
     /// waking the thread
     wait_cvar: Condvar,
-
-    /// atomic flag indicating that a control block is
-    /// dead, meaning that it is no longer needed for waiting
-    dead: AtomicBool,
 }
 
 
@@ -49,7 +45,6 @@ impl StmControlBlock {
             blocked: AtomicBool::new(true),
             lock: Mutex::new(()),
             wait_cvar: Condvar::new(),
-            dead: AtomicBool::new(false),
         }
     }
 
@@ -63,11 +58,11 @@ impl StmControlBlock {
         self.wait_cvar.notify_one();
     }
 
-    /// block until one variable has changed
+    /// Block until one variable has changed.
     ///
-    /// may immediately return
+    /// `wait` may immediately return.
     ///
-    /// need to be called by the STM
+    /// `wait` needs to be called by the STM instance itself.
     pub fn wait(&self) {
         let mut blocked = self.blocked.load(Ordering::SeqCst);
         let mut lock = self.lock.lock().unwrap();
@@ -75,13 +70,6 @@ impl StmControlBlock {
             lock = self.wait_cvar.wait(lock).unwrap();
             blocked = self.blocked.load(Ordering::SeqCst);
         }
-    }
-
-    /// atomic flag indicating that a control block is
-    /// dead, meaning that it is no longer needed for waiting
-    pub fn is_dead(&self) -> bool {
-        // use relaxed ordering here for more speed
-        self.dead.load(Ordering::Relaxed)
     }
 }
 
