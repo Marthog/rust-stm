@@ -121,6 +121,40 @@ impl Transaction {
         Transaction { vars: BTreeMap::new() }
     }
 
+    pub fn with<T, F>(f: F) -> T 
+    where F: Fn(&mut Transaction) -> StmResult<T> 
+    {
+        // create a log guard for initializing and cleaning up
+        // the log
+        let mut transaction = Transaction::new();
+
+        // loop until success
+        loop {
+            use StmResult::*;
+
+            // run the computation
+            match f(&mut transaction) {
+                // on success exit loop
+                Success(t) => {
+                    if transaction.commit() {
+                        return t;
+                    }
+                }
+
+                // on failure rerun immediately
+                Failure => (),
+
+                // on retry wait for changes
+                Retry => {
+                    transaction.wait_for_change();
+                }
+            }
+
+            // clear log before retrying computation
+            transaction.clear();
+        }
+    }
+
     /// perform a downcast on a var
     fn downcast<T: Any + Clone>(var: Arc<Any>) -> T {
         var.downcast_ref::<T>()
@@ -265,7 +299,7 @@ impl Transaction {
     /// write the log back to the variables
     ///
     /// return true for success and false if a read var has changed
-    pub fn log_writeback(&mut self) -> bool {
+    fn commit(&mut self) -> bool {
         // Replace with new structure, so that we don't have to copy.
         let vars = mem::replace(&mut self.vars, BTreeMap::new());
         // Use two phase locking for safely writing data back to the vars.

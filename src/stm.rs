@@ -144,37 +144,8 @@ impl<'a, T: 'a> STM<'a, T> {
 
     /// run a STM computation atomically
     pub fn atomically(&self) -> T {
-        // create a log guard for initializing and cleaning up
-        // the log
-        let mut log = Transaction::new();
-
-        // loop until success
-        loop {
-            use self::StmResult::*;
-
-            // run the computation
-            match self.run(&mut log) {
-                // on success exit loop
-                Success(t) => {
-                    if log.log_writeback() {
-                        return t;
-                    }
-                }
-
-                // on failure rerun immediately
-                Failure => (),
-
-                // on retry wait for changes
-                Retry => {
-                    log.wait_for_change();
-                }
-            }
-
-            // clear log before retrying computation
-            log.clear();
-        }
+        Transaction::with(|t| self.run(t))
     }
-
 
     // when the first computation fails, immediately rerun it without
     // trying the second one since 'or' provides an alternative to a
