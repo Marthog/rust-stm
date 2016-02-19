@@ -13,8 +13,9 @@ use std::sync::Arc;
 use std::mem;
 
 use super::var::{Var, VarControlBlock};
-use super::{STM, StmResult};
 use super::stm::StmControlBlock;
+use super::result::*;
+use super::result::StmError::*;
 
 pub type ArcAny = Arc<Any + Send + Sync>;
 
@@ -117,12 +118,12 @@ impl Transaction {
     ///
     /// normally you don't need to call this directly because the log
     /// is created as a thread-local global variable
-    pub fn new() -> Transaction {
+    fn new() -> Transaction {
         Transaction { vars: BTreeMap::new() }
     }
 
     pub fn with<T, F>(f: F) -> T 
-    where F: Fn(&mut Transaction) -> StmResult<T> 
+    where F: Fn(&mut Transaction) -> StmResult<T>,
     {
         // create a log guard for initializing and cleaning up
         // the log
@@ -130,22 +131,20 @@ impl Transaction {
 
         // loop until success
         loop {
-            use StmResult::*;
-
             // run the computation
             match f(&mut transaction) {
                 // on success exit loop
-                Success(t) => {
+                Ok(t) => {
                     if transaction.commit() {
                         return t;
                     }
                 }
 
                 // on failure rerun immediately
-                Failure => (),
+                Err(Failure) => { }
 
                 // on retry wait for changes
-                Retry => {
+                Err(Retry) => {
                     transaction.wait_for_change();
                 }
             }
@@ -166,7 +165,7 @@ impl Transaction {
     ///
     /// this is not always consistent with the current value of the var but may
     /// be an outdated or written but not commited value
-    pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &Var<T>) -> T {
+    pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &Var<T>) -> StmResult<T> {
         let ctrl = var.control_block().clone();
         // Check if the same var was written before.
         let value = match self.vars.entry(ctrl) {
@@ -184,14 +183,14 @@ impl Transaction {
                 value
             }
         };
-        Transaction::downcast(value)
+        Ok(Transaction::downcast(value))
     }
 
     /// write a variable
     ///
     /// does not immediately change the value but atomically
     /// commit all writes at the end of the computation
-    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &Var<T>, value: T) {
+    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &Var<T>, value: T) -> StmResult<()> {
         // box the value
         let boxed = Arc::new(value);
 
@@ -200,10 +199,13 @@ impl Transaction {
             Occupied(mut entry)     => entry.get_mut().write(boxed),
             Vacant(entry)       => { entry.insert(LogVar::Write(boxed)); }
         }
+        Ok(())
     }
 
-    pub fn or<'a, T>(&mut self, first: &STM<'a, T>, second: &STM<'a, T>) -> StmResult<T> {
-        use super::StmResult::*;
+    pub fn or<T, F1, F2>(&mut self, first: F1, second: F2) -> StmResult<T>
+        where F1: Fn(&mut Transaction) -> StmResult<T>,
+              F2: Fn(&mut Transaction) -> StmResult<T>,
+    {
 
         // Create a backup of the log.
         let mut copy = Transaction {
@@ -211,30 +213,29 @@ impl Transaction {
         };
 
         // Run the first computation.
-        let f = first.run(self);
+        let f = first(self);
 
         match f {
-            // Return success and failure directly
-            s@Success(_) => s,
-            Failure => Failure,
-
             // Run other on manual retry call.
-            Retry => {
+            Err(Retry)      => {
                 // swap, so that self is the current run
                 mem::swap(self, &mut copy);
 
                 // Run other action.
-                let s = second.run(self);
+                let s = second(self);
 
                 // If both called retry then exit.
                 match s {
-                    Failure         => Failure,
-                    s@Success(_) | s@Retry => {
+                    Err(Failure)        => Err(Failure),
+                    s => {
                         self.combine(copy);
                         s
                     }
                 }
             }
+
+            // Return success and failure directly
+            x               => x,
         }
     }
 
@@ -253,7 +254,7 @@ impl Transaction {
     ///
     /// This should be used before redoing a computation, but
     /// nowhere else.
-    pub fn clear(&mut self) {
+    fn clear(&mut self) {
         self.vars.clear();
     }
 
@@ -390,7 +391,7 @@ fn test_read() {
     let var = Var::new(vec![1, 2, 3, 4]);
 
     // the variable can be read
-    assert_eq!(&*log.read(&var), &[1, 2, 3, 4]);
+    assert_eq!(&*log.read(&var).unwrap(), &[1, 2, 3, 4]);
 }
 
 #[test]
@@ -398,9 +399,10 @@ fn test_write_read() {
     let mut log = Transaction::new();
     let var = Var::new(vec![1, 2]);
 
-    log.write(&var, vec![1, 2, 3, 4]);
+    log.write(&var, vec![1, 2, 3, 4]).unwrap();
+
     // consecutive reads get the updated version
-    assert_eq!(log.read(&var), [1, 2, 3, 4]);
+    assert_eq!(log.read(&var).unwrap(), [1, 2, 3, 4]);
 
     // the original value is still preserved
     assert_eq!(var.read_atomic(), [1, 2]);

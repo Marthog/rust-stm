@@ -11,11 +11,12 @@ use std::sync::{Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::Transaction;
+use super::result::*;
 
 #[cfg(test)]
 use super::Var;
 
-/// a control block for a currently running STM instance
+/// A control block for a currently running STM instance
 ///
 /// STM blocks on all read variables if retry was called
 /// this control block is used to let the vars inform the STM instance
@@ -73,148 +74,29 @@ impl StmControlBlock {
     }
 }
 
-
-/// StmResult is a result of a single step of a STM calculation.
-///
-/// It informs of success or the type of failure.
-pub enum StmResult<T> {
-    /// The call succeeded.
-    Success(T),
-
-    /// The call failed, because a variable, the computation
-    /// depends on, has changed.
-    Failure,
-
-    /// `retry` was called.
-    ///
-    /// It may block until at least one read variable has changed.
-    Retry,
-}
-
-
-
 /// call retry in `stm_call!` to let the STM manually run again
 ///
 /// this will block until at least one of the read vars has changed
 ///
 /// # Examples
 ///
-/// ```
-/// # #[macro_use] extern crate stm;
-/// # fn main() {
-/// use stm::retry;
-/// let infinite_retry = stm!(trans => {
-///     stm_try!(retry());
-/// });
-/// # }
+/// ```no_run
+/// use stm::*;
+/// let infinite_retry: i32 = atomically(|_| retry());
 /// ```
 
 pub fn retry<T>() -> StmResult<T> {
-    StmResult::Retry
+    Err(StmError::Retry)
 }
 
-/// type synonym for the inner of a STM calculation
-type StmFunction<'a, T> = Fn(&mut Transaction) -> StmResult<T> + 'a;
-
-/// class representing a STM computation
-pub struct STM<'a, T> {
-    /// STM uses a boxed closure internally
-    intern: Box<Fn(&mut Transaction) -> StmResult<T> + 'a>,
+pub fn atomically<T, F>(f: F) -> T
+where F: Fn(&mut Transaction) -> StmResult<T>
+{
+    Transaction::with(f)
 }
-
-impl<'a, T: 'a> STM<'a, T> {
-    /// create a new STM calculation from a closure
-    pub fn new<F>(func: F) -> STM<'a, T>
-        where F: Fn(&mut Transaction) -> StmResult<T> + 'a
-    {
-        STM { intern: Box::new(func) as Box<StmFunction<'a, T>> }
-    }
-
-    /// run a computation and return the result
-    ///
-    /// internal use only. Prefer atomically because it sets up
-    /// the log and retry the computation until it has succeeded
-    ///
-    /// internal use only
-    pub fn run(&self, log: &mut Transaction) -> StmResult<T> {
-        // can't call directly because rust assumes
-        // self.intern() to be a method call
-        (self.intern)(log)
-    }
-
-    /// run a STM computation atomically
-    pub fn atomically(&self) -> T {
-        Transaction::with(|t| self.run(t))
-    }
-
-    // when the first computation fails, immediately rerun it without
-    // trying the second one since 'or' provides an alternative to a
-    // blocked computation but not for cases when a variable has changed
-    // before finishing the computation
-    //
-
-    /// if one of both computations fails with a call to retry
-    /// then run the other one
-    ///
-    /// if both call retry then the thread will block until any
-    /// of the vars that were read in one of the both branches changes
-    pub fn or(self, other: STM<'a, T>) -> STM<'a, T> {
-        STM::new(move |stm| {
-            stm.or(&self, &other)
-        })
-    }
-
-    /// run the first and afterwards the second one
-    ///
-    /// `first.and(second)` is equal to
-    ///
-    /// ```ignore
-    /// stm!({
-    ///     stm_call!(first);
-    ///     stm_call!(second)
-    /// });
-    pub fn and<R: 'a>(self, other: STM<'a, R>) -> STM<'a, R> {
-        STM::new(move |trans| {
-            stm_call!(trans, self);
-            other.run(trans)
-        })
-    }
-
-    /// run the first and then applies the return value to the
-    /// function `f` which returns a STM-Block that is then executed
-    ///
-    /// `first.and_then(second)` is equal to
-    ///
-    /// ```ignore
-    /// stm!({
-    ///     let x = stm_call!(first);
-    ///     stm_call!(second(x))
-    /// });
-    pub fn and_then<F: 'a, R: 'a>(self, f: F) -> STM<'a, R>
-        where F: Fn(T) -> STM<'a, R>
-    {
-        STM::new(move |log| {
-            StmResult::Success({
-                let x = stm_call!(log, self);
-                stm_call!(log, f(x))
-            })
-        })
-    }
-}
-
-#[test]
-fn test_read_var() {
-    let mut stm = Transaction::new();
-    let var = Var::new(vec![1, 2]);
-    let x = var.read(&mut stm);
-
-    assert_eq!(x, [1, 2]);
-}
-
 #[test]
 fn test_stm_simple() {
-    let stm = STM::new(|_| StmResult::Success(42));
-    let x = stm.atomically();
+    let x = atomically(|_| Ok(42));
     assert_eq!(x, 42);
 }
 
@@ -223,11 +105,9 @@ fn test_stm_simple() {
 fn test_stm_read() {
     let read = Var::new(42);
 
-    let stm = STM::new(move |trans| {
-        let r = read.read(trans);
-        StmResult::Success(r)
+    let x = atomically(|trans| {
+        read.read(trans)
     });
-    let x = stm.atomically();
 
     assert_eq!(x, 42);
 }
@@ -236,12 +116,9 @@ fn test_stm_read() {
 fn test_stm_write() {
     let write = Var::new(42);
 
-    let writecp = write.clone();
-    let stm = STM::new(move |trans| {
-        writecp.write(trans, 0);
-        StmResult::Success(())
+    atomically(|trans| {
+        write.write(trans, 0)
     });
-    let _ = stm.atomically();
 
     assert_eq!(write.read_atomic(), 0);
 }
@@ -251,13 +128,10 @@ fn test_stm_copy() {
     let read = Var::new(42);
     let write = Var::new(0);
 
-    let writecp = write.clone();
-    let stm = STM::new(move |trans| {
-        let r = read.read(trans);
-        writecp.write(trans, r);
-        StmResult::Success(())
+    atomically(|trans| {
+        let r = try!(read.read(trans));
+        write.write(trans, r)
     });
-    stm.atomically();
 
     assert_eq!(write.read_atomic(), 42);
 }

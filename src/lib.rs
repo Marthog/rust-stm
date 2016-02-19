@@ -38,21 +38,13 @@
 //! ```
 //! # #[macro_use] extern crate stm;
 //! # fn main() {
-//! let transaction = stm!(trans => {
+//! atomically(|trans| {
 //!     // some action
-//!     // return value (or empty for unit)
+//!     // return value as `Result`
 //! });
 //! # }
 //! ```
 //! and can then be run by calling.
-//!
-//! ```
-//! # #[macro_use] extern crate stm;
-//! # fn main() {
-//! # let transaction = stm!(trans => {
-//! # });
-//! transaction.atomically();
-//! # }
 //!
 //! ```
 //!
@@ -108,41 +100,26 @@
 //! and every used var increases the chance of collisions. You should
 //! keep the amount of accessed variables as low as needed.
 
-#[macro_use]
-mod macros;
-
 mod stm;
 mod transaction;
 mod var;
+mod result;
 
-pub use stm::{STM, StmResult, retry};
+pub use stm::{atomically, retry};
 pub use var::Var;
 pub use transaction::Transaction;
-
-
-#[test]
-fn test_stm_macro() {
-    let var = Var::new(0);
-
-    let stm = stm!(stm => {
-        stm.write(&var, 42);
-        0
-    });
-
-    stm.atomically();
-}
+pub use result::*;
 
 #[test]
 fn test_stm_nested() {
     let var = Var::new(0);
 
-    let inner_stm = stm!(stm => stm.write(&var, 42));
-    let calc = stm!(stm => {
-        stm_call!(stm, inner_stm);
-        stm.read(&var)
+    let x = atomically(|trans| {
+        try!(var.write(trans, 42));
+        var.read(trans)
     });
 
-    assert_eq!(42, calc.atomically());
+    assert_eq!(42, x);
 }
 
 #[test]
@@ -157,23 +134,21 @@ fn test_threaded() {
 
     let var_ref = var.clone();
     thread::spawn(move || {
-        let stm = stm!(log => {
-            let x = log.read(&var_ref);
+        let val = atomically(|trans| {
+            let x = try!(var_ref.read(trans));
             if x == 0 {
-                stm_try!(retry());
+                retry()
+            } else {
+                Ok(x)
             }
-            x
         });
 
-        let _ = tx.send(stm.atomically());
+        let _ = tx.send(val);
     });
 
     thread::sleep(Duration::from_millis(100));
 
-    stm!(log => {
-        log.write(&var, 42);
-    })
-        .atomically();
+    atomically(|trans| var.write(trans, 42));
 
     let x = rx.recv().unwrap();
 
@@ -192,52 +167,25 @@ fn test_read_write_interfere() {
 
     // spawn a thread
     let t = thread::spawn(move || {
-        stm!(log => {
+        atomically(|log| {
             // read the var
-            let x = var_ref.read(log);
+            let x = try!(var_ref.read(log));
             // ensure that x var_ref changes in between
             thread::sleep(Duration::from_millis(200));
 
             // write back modified data this should only
             // happen when the value has not changed
-            var_ref.write(log, x + 10);
-        })
-            .atomically();
+            var_ref.write(log, x + 10)
+        });
     });
 
     // ensure that the thread has started and already read the var
     thread::sleep(Duration::from_millis(10));
 
     // now change it
-    stm!(log => {
-        var.write(log, 32);
-    })
-        .atomically();
+    atomically(|trans| var.write(trans, 32));
 
     // finish and compare
     let _ = t.join();
     assert_eq!(42, var.read_atomic());
 }
-
-// #[bench]
-// fn bench_counter_stm(bench: &mut Bencher) {
-// let var = Var::new(0);
-//
-// let stm = stm!({
-// let x = var.read();
-// var.write(x+1);
-// });
-//
-// b.iter(|| stm.atomically());
-// }
-//
-// #[bench]
-// fn bench_counter_lock(bench: &mut Bencher) {
-// let var = Mutex::new(0);
-//
-// b.iter(|| {
-// let guard = var.lock().unwrap();
-// guard += 1;
-// });
-// }
-//

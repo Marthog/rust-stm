@@ -13,6 +13,7 @@ use std::cmp;
 use std::any::Any;
 use std::marker::PhantomData;
 
+use super::result::*;
 use super::stm::{StmControlBlock};
 use super::Transaction;
 
@@ -186,8 +187,7 @@ impl<T> Var<T>
     /// # use stm::*;
     /// # fn main() {
     /// # let var = Var::new(0);
-    /// stm!(trans => var.read(trans))
-    ///     .atomically();
+    /// atomically(|trans| var.read(trans));
     /// # }
     /// ```
     ///
@@ -221,7 +221,7 @@ impl<T> Var<T>
     ///
     /// Panics when called from outside of a STM-Block
     ///
-    pub fn read(&self, transaction: &mut Transaction) -> T {
+    pub fn read(&self, transaction: &mut Transaction) -> StmResult<T> {
         transaction.read(&self)
     }
 
@@ -234,8 +234,8 @@ impl<T> Var<T>
     ///
     /// Panics when called from outside of a STM-Block
     ///
-    pub fn write(&self, transaction: &mut Transaction, value: T) {
-        transaction.write(&self, value);
+    pub fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()> {
+        transaction.write(&self, value)
     }
     
     /// wake all threads that are waiting for this value
