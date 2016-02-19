@@ -11,6 +11,7 @@ use std::sync::{Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::Transaction;
+use super::transaction::atomically;
 
 #[cfg(test)]
 use super::Var;
@@ -174,67 +175,12 @@ impl<'a, T: 'a> STM<'a, T> {
             log.clear();
         }
     }
-
-
-    // when the first computation fails, immediately rerun it without
-    // trying the second one since 'or' provides an alternative to a
-    // blocked computation but not for cases when a variable has changed
-    // before finishing the computation
-    //
-
-    /// if one of both computations fails with a call to retry
-    /// then run the other one
-    ///
-    /// if both call retry then the thread will block until any
-    /// of the vars that were read in one of the both branches changes
-    pub fn or(self, other: STM<'a, T>) -> STM<'a, T> {
-        STM::new(move |stm| {
-            stm.or(&self, &other)
-        })
-    }
-
-    /// run the first and afterwards the second one
-    ///
-    /// `first.and(second)` is equal to
-    ///
-    /// ```ignore
-    /// stm!({
-    ///     stm_call!(first);
-    ///     stm_call!(second)
-    /// });
-    pub fn and<R: 'a>(self, other: STM<'a, R>) -> STM<'a, R> {
-        STM::new(move |trans| {
-            stm_call!(trans, self);
-            other.run(trans)
-        })
-    }
-
-    /// run the first and then applies the return value to the
-    /// function `f` which returns a STM-Block that is then executed
-    ///
-    /// `first.and_then(second)` is equal to
-    ///
-    /// ```ignore
-    /// stm!({
-    ///     let x = stm_call!(first);
-    ///     stm_call!(second(x))
-    /// });
-    pub fn and_then<F: 'a, R: 'a>(self, f: F) -> STM<'a, R>
-        where F: Fn(T) -> STM<'a, R>
-    {
-        STM::new(move |log| {
-            StmResult::Success({
-                let x = stm_call!(log, self);
-                stm_call!(log, f(x))
-            })
-        })
-    }
 }
 
 #[test]
 fn test_read_var() {
-    let mut stm = Transaction::new();
     let var = Var::new(vec![1, 2]);
+    let mut stm = Transaction::new();
     let x = var.read(&mut stm);
 
     assert_eq!(x, [1, 2]);
@@ -242,51 +188,56 @@ fn test_read_var() {
 
 #[test]
 fn test_stm_simple() {
-    let stm = STM::new(|_| StmResult::Success(42));
-    let x = stm.atomically();
+    let x = Transaction::with(&|_| StmResult::Success(42));
     assert_eq!(x, 42);
 }
-
 
 #[test]
 fn test_stm_read() {
+    // PROBLEM:
+    //     read is local.
+    //     read needs to outlive stm.
+    //     read needs to outlive trans, because of read.read.
+    //     trans has undetermined livetime of at least function call.
+    //     -> can't proof inside of stm, that trans outlives read
     let read = Var::new(42);
-
-    let stm = STM::new(move |trans| {
+    let stm = |trans| {
         let r = read.read(trans);
         StmResult::Success(r)
-    });
-    let x = stm.atomically();
+    };
+    let x = atomically(&stm);
 
     assert_eq!(x, 42);
 }
 
+/*
 #[test]
 fn test_stm_write() {
     let write = Var::new(42);
 
-    let writecp = write.clone();
-    let stm = STM::new(move |trans| {
-        writecp.write(trans, 0);
+    let stm = STM::new(|trans| {
+        write.write(trans, 0);
         StmResult::Success(())
     });
     let _ = stm.atomically();
 
     assert_eq!(write.read_atomic(), 0);
 }
+*/
 
+/*
 #[test]
 fn test_stm_copy() {
     let read = Var::new(42);
     let write = Var::new(0);
 
-    let writecp = write.clone();
-    let stm = STM::new(move |trans| {
+    let stm = STM::new(|trans| {
         let r = read.read(trans);
-        writecp.write(trans, r);
+        write.write(trans, r);
         StmResult::Success(())
     });
     stm.atomically();
 
     assert_eq!(write.read_atomic(), 42);
 }
+*/

@@ -92,19 +92,17 @@
 //! immediately panic. When you use STM in the inner of a function then
 //! return a STM-Object instead so that callers can safely compose it into
 //! larger blocks.
-//! * Don't mix locks and STM. Your code will easily deadlock and slow
-//! down on unpredictably.
+//! * Don't mix locks and STM. Your code will easily deadlock or slow
+//! down unpredictably.
 //! * When you put an `Arc` into a `Var` don't use inner mutability
 //! to modify it since the inner still points to the original value.
-//! * Don't call `Var::read` or `Var::write` from outside of a STM block.
-//! Instead start a STM or use `Var::read_atomic` for it.
 //!
 //!
 //! # Speed
-//! Generally keep your atomic blocks as small as possible bacause
-//! the more time you spend the more likely it is to collide with
-//! other threads. For STM reading vars is quite slow because it
-//! need to look them up in the log every time they are written to
+//! Generally keep your atomic blocks as small as possible, because
+//! the more time you spend, the more likely it is to collide with
+//! other threads. For STMm reading vars is quite slow because it
+//! needs to look them up in the log every time they are written to
 //! and every used var increases the chance of collisions. You should
 //! keep the amount of accessed variables as low as needed.
 
@@ -120,6 +118,16 @@ pub use var::Var;
 pub use transaction::Transaction;
 
 
+#[cfg(test)]
+use std::thread;
+
+#[cfg(test)]
+use std::sync::{Arc};
+
+#[cfg(test)]
+use std::time::Duration;
+
+/*
 #[test]
 fn test_stm_macro() {
     let var = Var::new(0);
@@ -148,10 +156,9 @@ fn test_stm_nested() {
 #[test]
 fn test_threaded() {
     use std::time::Duration;
-    use std::thread;
     use std::sync::mpsc::channel;
 
-    let var = Var::new(0);
+    let var = Arc::new(Var::new(0));
 
     let (tx, rx) = channel();
 
@@ -183,11 +190,9 @@ fn test_threaded() {
 /// test if a STM calculation is rerun when a Var changes while executing
 #[test]
 fn test_read_write_interfere() {
-    use std::thread;
-    use std::time::Duration;
 
     // create var
-    let var = Var::new(0);
+    let var = Arc::new(Var::new(0));
     let var_ref = var.clone();
 
     // spawn a thread
@@ -218,6 +223,7 @@ fn test_read_write_interfere() {
     let _ = t.join();
     assert_eq!(42, var.read_atomic());
 }
+*/
 
 // #[bench]
 // fn bench_counter_stm(bench: &mut Bencher) {

@@ -99,25 +99,94 @@ impl LogVar {
     }
 }
 
+pub fn atomically<F, T>(f: F) -> T
+    where F: Fn(&mut Transaction) -> StmResult<T>,
+{
+        // create a log guard for initializing and cleaning up
+        // the log
+        let mut trans = Transaction::new();
+
+        // loop until success
+        loop {
+            use StmResult::*;
+            let t = f(&mut trans);
+
+            // run the computation
+            match t {
+                // on success exit loop
+                Success(t) => {
+                    if trans.log_writeback() {
+                        return t;
+                    }
+                }
+
+                // on failure rerun immediately
+                Failure => (),
+
+                // on retry wait for changes
+                Retry => {
+                    trans.wait_for_change();
+                }
+            }
+
+            // clear log before retrying computation
+            trans.clear();
+        }
+}
 
 /// Log used by STM the track all the read and written variables
 ///
 /// used for checking vars to ensure atomicity
-pub struct Transaction {
+pub struct Transaction<'this> {
     /// map of all vars that map the `VarControlBlock` of a var to a LogVar
 
     /// the `VarControlBlock` is unique because it uses it's address for comparing
     ///
     /// the logs need to be accessed in a order to prevend dead-locks on locking
-    vars: BTreeMap<Arc<VarControlBlock>, LogVar>,
+    vars: BTreeMap<&'this VarControlBlock, LogVar>,
 }
 
-impl Transaction {
+impl<'this> Transaction<'this> {
+    pub fn with<F, T>(f: &'this F) -> T
+    where F: Fn(&mut Transaction) -> StmResult<T>,
+    {
+        // create a log guard for initializing and cleaning up
+        // the log
+        let mut trans = Transaction::new();
+
+        // loop until success
+        loop {
+            use StmResult::*;
+            let t = (*f)(&mut trans);
+
+            // run the computation
+            match t {
+                // on success exit loop
+                Success(t) => {
+                    if trans.log_writeback() {
+                        return t;
+                    }
+                }
+
+                // on failure rerun immediately
+                Failure => (),
+
+                // on retry wait for changes
+                Retry => {
+                    trans.wait_for_change();
+                }
+            }
+
+            // clear log before retrying computation
+            trans.clear();
+        }
+    }
+
     /// create a new Log
     ///
     /// normally you don't need to call this directly because the log
     /// is created as a thread-local global variable
-    pub fn new() -> Transaction {
+    pub fn new() -> Transaction<'this> {
         Transaction { vars: BTreeMap::new() }
     }
 
@@ -132,8 +201,8 @@ impl Transaction {
     ///
     /// this is not always consistent with the current value of the var but may
     /// be an outdated or written but not commited value
-    pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &Var<T>) -> T {
-        let ctrl = var.control_block().clone();
+    pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &'this Var<T>) -> T {
+        let ctrl = var.control_block();
         // Check if the same var was written before.
         let value = match self.vars.entry(ctrl) {
 
@@ -157,21 +226,27 @@ impl Transaction {
     ///
     /// does not immediately change the value but atomically
     /// commit all writes at the end of the computation
-    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &Var<T>, value: T) {
+    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &'this Var<T>, value: T) {
         // box the value
         let boxed = Arc::new(value);
 
-        let ctrl = var.control_block().clone();
+        let ctrl = var.control_block();
         match self.vars.entry(ctrl) {
             Occupied(mut entry)     => entry.get_mut().write(boxed),
             Vacant(entry)       => { entry.insert(LogVar::Write(boxed)); }
         }
     }
 
-    pub fn or<'a, T>(&mut self, first: &STM<'a, T>, second: &STM<'a, T>) -> StmResult<T> {
+    pub fn or<'a, T>(&mut self, 
+                     first: &'this STM<'a, T>, 
+                     second: &'this STM<'a, T>) 
+        -> StmResult<T> {
         use super::StmResult::*;
 
         // Create a backup of the log.
+        //
+        // TODO: Get rid of the overhead for copying everything.
+        //       Maybe have a stack of logs.
         let mut copy = Transaction {
             vars: self.vars.clone()
         };
@@ -205,7 +280,7 @@ impl Transaction {
     }
 
     /// Combine two logs into a single log to allow waiting for all reads.
-    fn combine(&mut self, other: Transaction) {
+    fn combine(&mut self, other: Transaction<'this>) {
         // combine reads
         for (var, value) in other.vars {
             // only insert new values
@@ -352,8 +427,8 @@ fn same_address<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
 
 #[test]
 fn test_read() {
-    let mut log = Transaction::new();
     let var = Var::new(vec![1, 2, 3, 4]);
+    let mut log = Transaction::new();
 
     // the variable can be read
     assert_eq!(&*log.read(&var), &[1, 2, 3, 4]);
@@ -361,8 +436,8 @@ fn test_read() {
 
 #[test]
 fn test_write_read() {
-    let mut log = Transaction::new();
     let var = Var::new(vec![1, 2]);
+    let mut log = Transaction::new();
 
     log.write(&var, vec![1, 2, 3, 4]);
     // consecutive reads get the updated version

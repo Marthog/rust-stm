@@ -49,18 +49,16 @@ pub struct VarControlBlock {
     pub value: RwLock<Arc<Any + Send + Sync>>,
 }
 
-
 impl VarControlBlock {
     /// create a new empty `VarControlBlock`
-    pub fn new<T>(val: T) -> Arc<VarControlBlock>
+    pub fn new<T>(val: T) -> VarControlBlock
         where T: Any + Sync + Send
     {
-        let ctrl = VarControlBlock {
+        VarControlBlock {
             waiting_threads: Mutex::new(Vec::new()),
             dead_threads: AtomicUsize::new(0),
             value: RwLock::new(Arc::new(val)),
-        };
-        Arc::new(ctrl)
+        }
     }
 
     /// wake all threads that are waiting for the used var
@@ -147,12 +145,11 @@ impl PartialOrd for VarControlBlock {
 
 
 /// A variable that can be used in a STM-Block
-#[derive(Clone)]
 pub struct Var<T> {
     /// the control block is the inner of the variable
     /// 
     /// the rest is just the typesafe interface
-    control_block: Arc<VarControlBlock>,
+    control_block: VarControlBlock,
     /// this marker is needed so that the variable can be used in a threadsafe
     /// manner
     _marker: PhantomData<T>,
@@ -221,8 +218,8 @@ impl<T> Var<T>
     ///
     /// Panics when called from outside of a STM-Block
     ///
-    pub fn read(&self, transaction: &mut Transaction) -> T {
-        transaction.read(&self)
+    pub fn read<'a>(&'a self, transaction: &mut Transaction<'a>) -> T {
+        transaction.read(self)
     }
 
     /// the normal way to write a var
@@ -234,8 +231,8 @@ impl<T> Var<T>
     ///
     /// Panics when called from outside of a STM-Block
     ///
-    pub fn write(&self, transaction: &mut Transaction, value: T) {
-        transaction.write(&self, value);
+    pub fn write<'a>(&'a self, transaction: &mut Transaction<'a>, value: T) {
+        transaction.write(self, value);
     }
     
     /// wake all threads that are waiting for this value
@@ -248,12 +245,12 @@ impl<T> Var<T>
     /// access the control block of the var
     ///
     /// internal use only
-    pub fn control_block(&self) -> &Arc<VarControlBlock> {
+    pub fn control_block<'a>(&'a self) -> &'a VarControlBlock {
         &self.control_block
     }
 }
 
-
+/*
 /// test if a waiting and waking of threads works
 #[test]
 fn test_wait() {
@@ -293,3 +290,4 @@ fn test_wait() {
 
     let _ = handle.join();
 }
+*/
