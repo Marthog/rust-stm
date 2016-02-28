@@ -6,107 +6,29 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+pub mod control_block;
+pub mod log_var;
+
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry::*;
-use std::any::Any;
-use std::sync::Arc;
 use std::mem;
+use std::sync::{Arc};
+use std::any::Any;
 
-use super::var::{Var, VarControlBlock};
-use super::stm::StmControlBlock;
+use self::log_var::LogVar;
+use self::log_var::LogVar::*;
+use self::control_block::ControlBlock;
+use super::var::{TVar, VarControlBlock};
 use super::result::*;
 use super::result::StmError::*;
 
-pub type ArcAny = Arc<Any + Send + Sync>;
 
-/// LogVar is used by `Log` to track which `Var` was either read or written
-#[derive(Clone)]
-enum LogVar {
-    /// Var has been read.
-    Read(ArcAny),
-    
-    /// Var has been written and no dependency on the original exists.
-    ///
-    /// There is no need to check for consistency.
-    Write(ArcAny),
-
-    /// Var has been read first and then written.
-    ///
-    /// It needs to be checked for consistency.
-    ReadWrite(ArcAny, ArcAny),
-
-    /// Var has been read on blocked path.
-    ///
-    /// Don't check for consistency, but block on Var,
-    /// so that the threat wakes up when the first path
-    /// has been unlocked.
-    ReadObsolete(ArcAny),
-
-    /// Var has been read on blocked path and then written to.
-    ///
-    /// Don't check for consistency, but block on Var,
-    /// so that the threat wakes up when the first path
-    /// has been unlocked.
-    ReadObsoleteWrite(ArcAny, ArcAny)
-}
-
-
-impl LogVar {
-    /// read a value and potentially upgrade the state
-    pub fn read(&mut self) -> ArcAny {
-        use self::LogVar::*;
-        let this = self.clone();
-
-        match this {
-            Read(v) | Write(v) | ReadWrite(_,v) | ReadObsoleteWrite(_,v)     => v,
-            ReadObsolete(v)           => {
-                *self = Read(v.clone());
-                v
-            }
-        }
-    }
-    
-    /// write a value and potetially upgrade the state
-    pub fn write(&mut self, w: ArcAny)
-    {
-        use self::LogVar::*;
-        // TODO: replace with unsafe
-        let this = self.clone();
-        *self = match this {
-            Write(_)    => Write(w),
-            ReadObsolete(r) | ReadObsoleteWrite(r, _)
-                => ReadObsoleteWrite(r, w),
-            Read(r) | ReadWrite(r, _)
-                => ReadWrite(r, w),
-        };
-    }
-
-    /// turn this into an obsolete version
-    pub fn obsolete(self) -> Option<LogVar>
-    {
-        use self::LogVar::*;
-        self.into_read_value()
-            .map(|a| ReadObsolete(a))
-    }
-
-    pub fn into_read_value(self) -> Option<ArcAny> {
-        use self::LogVar::*;
-        match self {
-            // Throw away the reads and set the writes to obsolete.
-            Read(v) | ReadWrite(v,_) | ReadObsolete(v) | ReadObsoleteWrite(v,_)
-                => Some(v),
-            Write(_)    => None,
-        }
-    }
-}
-
-
-/// Log used by STM the track all the read and written variables
+/// Transaction tracks all the read and written variables.
 ///
-/// used for checking vars to ensure atomicity
+/// It is used for checking vars, to ensure atomicity.
 pub struct Transaction {
-    /// map of all vars that map the `VarControlBlock` of a var to a LogVar
 
+    /// map of all vars that map the `VarControlBlock` of a var to a LogVar
     /// the `VarControlBlock` is unique because it uses it's address for comparing
     ///
     /// the logs need to be accessed in a order to prevend dead-locks on locking
@@ -122,6 +44,9 @@ impl Transaction {
         Transaction { vars: BTreeMap::new() }
     }
 
+    /// Run a function with a transaction.
+    ///
+    /// It is equivalent to `atomically`.
     pub fn with<T, F>(f: F) -> T 
     where F: Fn(&mut Transaction) -> StmResult<T>,
     {
@@ -154,18 +79,22 @@ impl Transaction {
         }
     }
 
-    /// perform a downcast on a var
+    /// Perform a downcast on a var.
     fn downcast<T: Any + Clone>(var: Arc<Any>) -> T {
         var.downcast_ref::<T>()
            .expect("Vars with different types and same address")
            .clone()
     }
 
-    /// read a variable and return the value
+    /// Read a variable and return the value.
     ///
     /// this is not always consistent with the current value of the var but may
     /// be an outdated or written but not commited value
-    pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &Var<T>) -> StmResult<T> {
+    ///
+    /// The used code should be capable of handling inconsistens states
+    /// without running into infinite loops.
+    /// Just the commit of wrong values is prevented.
+    pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &TVar<T>) -> StmResult<T> {
         let ctrl = var.control_block().clone();
         // Check if the same var was written before.
         let value = match self.vars.entry(ctrl) {
@@ -183,25 +112,35 @@ impl Transaction {
                 value
             }
         };
+
+        // For now always succeeds, but that may change later.
         Ok(Transaction::downcast(value))
     }
 
-    /// write a variable
+    /// Write a variable.
     ///
-    /// does not immediately change the value but atomically
-    /// commit all writes at the end of the computation
-    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &Var<T>, value: T) -> StmResult<()> {
+    /// `write` does not immediately change the value, but atomically
+    /// commits all writes at the end of the computation.
+    pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &TVar<T>, value: T) -> StmResult<()> {
         // box the value
         let boxed = Arc::new(value);
 
+        // new control block
         let ctrl = var.control_block().clone();
+        // update or create new entry
         match self.vars.entry(ctrl) {
             Occupied(mut entry)     => entry.get_mut().write(boxed),
             Vacant(entry)       => { entry.insert(LogVar::Write(boxed)); }
         }
+
+        // For now always succeeds, but that may change later.
         Ok(())
     }
 
+    /// Combine two calculations. When one blocks with `retry`, 
+    /// run the other, but don't commit the changes in the first.
+    /// It still blocks on all, so that you can wait for one of
+    /// two alternatives.
     pub fn or<T, F1, F2>(&mut self, first: F1, second: F2) -> StmResult<T>
         where F1: Fn(&mut Transaction) -> StmResult<T>,
               F2: Fn(&mut Transaction) -> StmResult<T>,
@@ -239,7 +178,7 @@ impl Transaction {
         }
     }
 
-    /// Combine two logs into a single log to allow waiting for all reads.
+    /// Combine two logs into a single log, to allow waiting for all reads.
     fn combine(&mut self, other: Transaction) {
         // combine reads
         for (var, value) in other.vars {
@@ -258,9 +197,11 @@ impl Transaction {
         self.vars.clear();
     }
 
-    pub fn wait_for_change(&mut self) {
+    /// Wait for any variable to change,
+    /// because the change may lead to a new calculation result.
+    fn wait_for_change(&mut self) {
         // create control block for waiting
-        let ctrl = Arc::new(StmControlBlock::new());
+        let ctrl = Arc::new(ControlBlock::new());
 
         let vars = mem::replace(&mut self.vars, BTreeMap::new());
         let mut reads = Vec::new();
@@ -297,9 +238,9 @@ impl Transaction {
         }
     }
 
-    /// write the log back to the variables
+    /// Write the log back to the variables.
     ///
-    /// return true for success and false if a read var has changed
+    /// Return true for success and false, if a read var has changed
     fn commit(&mut self) -> bool {
         // Replace with new structure, so that we don't have to copy.
         let vars = mem::replace(&mut self.vars, BTreeMap::new());
@@ -317,7 +258,6 @@ impl Transaction {
         let mut write_vec = Vec::new();
 
         for (var, value) in &vars {
-            use self::LogVar::*;
             // lock the variable and read the value
 
             match value {
@@ -385,10 +325,29 @@ fn same_address<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
     arc_to_address(a) == arc_to_address(b)
 }
 
+
+/// Test same_address on a cloned Arc
+#[test]
+fn test_same_address_equal() {
+    let t1 = Arc::new(42);
+    let t2 = t1.clone();
+    
+    assert!(same_address(&t1, &t2));
+}
+
+/// Test same_address on differenc Arcs with same value
+#[test]
+fn test_same_address_different() {
+    let t1 = Arc::new(42);
+    let t2 = Arc::new(42);
+    
+    assert!(!same_address(&t1, &t2));
+}
+
 #[test]
 fn test_read() {
     let mut log = Transaction::new();
-    let var = Var::new(vec![1, 2, 3, 4]);
+    let var = TVar::new(vec![1, 2, 3, 4]);
 
     // the variable can be read
     assert_eq!(&*log.read(&var).unwrap(), &[1, 2, 3, 4]);
@@ -397,7 +356,7 @@ fn test_read() {
 #[test]
 fn test_write_read() {
     let mut log = Transaction::new();
-    let var = Var::new(vec![1, 2]);
+    let var = TVar::new(vec![1, 2]);
 
     log.write(&var, vec![1, 2, 3, 4]).unwrap();
 
@@ -407,3 +366,45 @@ fn test_write_read() {
     // the original value is still preserved
     assert_eq!(var.read_atomic(), [1, 2]);
 }
+
+#[test]
+fn test_transaction_simple() {
+    let x = Transaction::with(|_| Ok(42));
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn test_transaction_read() {
+    let read = TVar::new(42);
+
+    let x = Transaction::with(|trans| {
+        read.read(trans)
+    });
+
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn test_transaction_write() {
+    let write = TVar::new(42);
+
+    Transaction::with(|trans| {
+        write.write(trans, 0)
+    });
+
+    assert_eq!(write.read_atomic(), 0);
+}
+
+#[test]
+fn test_transaction_copy() {
+    let read = TVar::new(42);
+    let write = TVar::new(0);
+
+    Transaction::with(|trans| {
+        let r = try!(read.read(trans));
+        write.write(trans, r)
+    });
+
+    assert_eq!(write.read_atomic(), 42);
+}
+

@@ -32,87 +32,116 @@
 //!
 //! # Usage
 //!
-//! STM operations are safed inside the type `STM<T>` where T
-//! is the return type of the inner operation. They are created with `stm!`:
+//! You should only use the functions that are safe to use.
+//!
+//! Don't have side effects except for the atomic variables, from this library.
+//! Especially a mutex or other blocking mechanisms inside of software transactional
+//! memory is dangerous.
+//!
+//! You can run the top-level atomic operation by calling `atomically`.
+//!
 //!
 //! ```
-//! # #[macro_use] extern crate stm;
-//! # fn main() {
+//! use stm::atomically;
 //! atomically(|trans| {
 //!     // some action
-//!     // return value as `Result`
+//!     // return value as `Result`, for example
+//!     Ok(42)
 //! });
-//! # }
-//! ```
-//! and can then be run by calling.
-//!
 //! ```
 //!
-//! For running an STM-Block inside of another
-//! use the macro `stm_call!`:
+//! Calls to `atomically` should not be nested.
+//!
+//! For running an atomic operation inside of another, pass a mutable reference to a `Transaction`
+//! and call `try!` on the result. You should not handle the error yourself.
 //!
 //! ```
-//! # #[macro_use] extern crate stm;
-//! # fn main() {
-//! use stm::Var;
-//! let var = Var::new(0);
-//! let modify = stm!(trans => {
-//!     var.write(trans, 42);
-//! });
+//! use stm::{atomically, TVar};
+//! let var = TVar::new(0);
 //!
-//! let x = stm!(trans => {
-//!     stm_call!(trans, modify);
+//! let x = atomically(|trans| {
+//!     try!(var.write(trans, 42));
 //!     var.read(trans) // return the value saved in var
-//! }).atomically();
+//! });
 //!
 //! println!("var = {}", x);
-//! # }
 //!
 //! ```
 //!
 //! # STM safety
 //!
-//! Software transactional memory is completely safe in the terms
+//! Software transactional memory is completely safe in the terms,
 //! that rust considers safe. Still there are multiple rules that
 //! you should obey when dealing with software transactional memory:
 //!
 //! * Don't run code with side effects, especially no IO-code,
 //! because stm is designed to be run multiple times. Return a
 //! closure if you have to.
-//! * Don't run an STM-Block by calling `STM::atomically` inside of
-//! another because your thread will
+//! * Don't handle the error types yourself, unless you absolutely know, what you
+//! are doing. Use `Transaction::or`, to try alternatives.
+//! * Don't run `atomically` inside of another, because your thread will
 //! immediately panic. When you use STM in the inner of a function then
-//! return a STM-Object instead so that callers can safely compose it into
+//! express that in the public interface, by taking a `&mut Transaction` and 
+//! returning a `StmResult<T>`. Callers can safely compose it into
 //! larger blocks.
-//! * Don't mix locks and STM. Your code will easily deadlock and slow
+//! * Don't mix locks and transactions. Your code will easily deadlock and slow
 //! down on unpredictably.
-//! * When you put an `Arc` into a `Var` don't use inner mutability
-//! to modify it since the inner still points to the original value.
-//! * Don't call `Var::read` or `Var::write` from outside of a STM block.
-//! Instead start a STM or use `Var::read_atomic` for it.
-//!
+//! * When you put an `Arc` into a `Var`, don't use inner mutability
+//! to modify it because, the inner still points to the original value.
 //!
 //! # Speed
-//! Generally keep your atomic blocks as small as possible bacause
-//! the more time you spend the more likely it is to collide with
-//! other threads. For STM reading vars is quite slow because it
-//! need to look them up in the log every time they are written to
+//!
+//! Generally keep your atomic blocks as small as possible, because
+//! the more time you spend, the more likely it is, to collide with
+//! other threads. For STM, reading vars is quite slow, because it
+//! needs to look them up in the log every time, they are written to,
 //! and every used var increases the chance of collisions. You should
 //! keep the amount of accessed variables as low as needed.
 
-mod stm;
 mod transaction;
 mod var;
 mod result;
 
-pub use stm::{atomically, retry};
-pub use var::Var;
+#[cfg(test)]
+mod test;
+
+pub use var::TVar;
 pub use transaction::Transaction;
 pub use result::*;
 
+
+/// call `retry`, to abort an operation. It takes another path of an
+/// `Transaction::or` or blocks until any variable changes.
+///
+/// # Examples
+///
+/// ```no_run
+/// use stm::*;
+/// let infinite_retry: i32 = atomically(|_| retry());
+/// ```
+pub fn retry<T>() -> StmResult<T> {
+    Err(StmError::Retry)
+}
+
+/// Run a function atomically by using Software Transactional Memory.
+/// It calls to `Transaction::with` internally, but is more explicit.
+pub fn atomically<T, F>(f: F) -> T
+where F: Fn(&mut Transaction) -> StmResult<T>
+{
+    Transaction::with(f)
+}
+
+#[test]
+fn test_infinite_retry() {
+    let terminated = test::terminates(50, || { 
+        let _infinite_retry: i32 = atomically(|_| retry());
+    });
+    assert!(!terminated);
+}
+
 #[test]
 fn test_stm_nested() {
-    let var = Var::new(0);
+    let var = TVar::new(0);
 
     let x = atomically(|trans| {
         try!(var.write(trans, 42));
@@ -122,35 +151,40 @@ fn test_stm_nested() {
     assert_eq!(42, x);
 }
 
+/// Run multiple threads.
+///
+/// Thread 1: Read a var, block until it is not 0 and then
+/// return that value.
+///
+/// Thread 2: Wait a bit. Then write a value.
+///
+/// Check if Thread 1 is woken up correctly and then check for 
+/// correctness.
 #[test]
 fn test_threaded() {
-    use std::time::Duration;
     use std::thread;
-    use std::sync::mpsc::channel;
+    use std::time::Duration;
 
-    let var = Var::new(0);
-
-    let (tx, rx) = channel();
-
+    let var = TVar::new(0);
     let var_ref = var.clone();
-    thread::spawn(move || {
-        let val = atomically(|trans| {
-            let x = try!(var_ref.read(trans));
-            if x == 0 {
-                retry()
-            } else {
-                Ok(x)
-            }
-        });
 
-        let _ = tx.send(val);
-    });
+    let x = test::async(200,
+        move || {
+            atomically(|trans| {
+                let x = try!(var_ref.read(trans));
+                if x == 0 {
+                    retry()
+                } else {
+                    Ok(x)
+                }
+            })
+        },
+        move || {
+            thread::sleep(Duration::from_millis(100));
 
-    thread::sleep(Duration::from_millis(100));
-
-    atomically(|trans| var.write(trans, 42));
-
-    let x = rx.recv().unwrap();
+            atomically(|trans| var.write(trans, 42));
+        }
+    ).unwrap();
 
     assert_eq!(42, x);
 }
@@ -162,7 +196,7 @@ fn test_read_write_interfere() {
     use std::time::Duration;
 
     // create var
-    let var = Var::new(0);
+    let var = TVar::new(0);
     let var_ref = var.clone();
 
     // spawn a thread
@@ -171,7 +205,7 @@ fn test_read_write_interfere() {
             // read the var
             let x = try!(var_ref.read(log));
             // ensure that x var_ref changes in between
-            thread::sleep(Duration::from_millis(200));
+            thread::sleep(Duration::from_millis(500));
 
             // write back modified data this should only
             // happen when the value has not changed
@@ -180,7 +214,7 @@ fn test_read_write_interfere() {
     });
 
     // ensure that the thread has started and already read the var
-    thread::sleep(Duration::from_millis(10));
+    thread::sleep(Duration::from_millis(100));
 
     // now change it
     atomically(|trans| var.write(trans, 32));
@@ -188,4 +222,77 @@ fn test_read_write_interfere() {
     // finish and compare
     let _ = t.join();
     assert_eq!(42, var.read_atomic());
+}
+
+#[test]
+fn test_or_simple() {
+    let var = TVar::new(42);
+
+    let x = atomically(|trans| {
+        trans.or(|_| {
+            retry()
+        },
+        |trans| {
+            var.read(trans)
+        })
+    });
+
+    assert_eq!(x, 42);
+}
+
+/// A variable should not be written,
+/// when another branch was taken
+#[test]
+fn test_or_nocommit() {
+    let var = TVar::new(42);
+
+    let x = atomically(|trans| {
+        trans.or(|trans| {
+            try!(var.write(trans, 23));
+            retry()
+        },
+        |trans| {
+            var.read(trans)
+        })
+    });
+
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn test_or_nested_first() {
+    let var = TVar::new(42);
+
+    let x = atomically(|trans| {
+        trans.or(
+            |t| {
+                t.or(
+                    |_| retry(),
+                    |_| retry()
+                )
+            },
+            |trans| var.read(trans)
+        )
+    });
+
+    assert_eq!(x, 42);
+}
+
+#[test]
+fn test_or_nested_second() {
+    let var = TVar::new(42);
+
+    let x = atomically(|trans| {
+        trans.or(
+            |_| {
+                retry()
+            },
+            |t| t.or(
+                |t2| var.read(t2),
+                |_| retry()
+            )
+        )
+    });
+
+    assert_eq!(x, 42);
 }

@@ -25,43 +25,44 @@ are checked for consistency and depending on the result
 either the writes are committed in a single atomic operation
 or the result is discarded and the computation run again.
 
-# Usage
 
-STM operations are safed inside the type `STM<T>` where T
-is the return type of the inner operation. They are created with `stm!`:
+ # Usage
 
-```
-let transaction = stm!({
-    // some action
-    // return value (or empty for unit)
-});
-```
-and can then be run by calling.
+ You should only use the functions that are safe to use.
 
-```
-transaction.atomically();
+ Don't have side effects except for the atomic variables, from this library.
+ Especially a mutex or other blocking mechanisms inside of software transactional
+ memory is dangerous.
 
-```
+ You can run the top-level atomic operation by calling `atomically`.
 
-For running an STM-Block inside of another
-use the macro `stm_call!`:
 
-```
-use stm::Var;
-let var = Var::new(0);
-let var2 = var.clone(); // clone so that it can be send to a closure
-let modify = stm!({
-    var2.write(42);
-});
+ ```
+ use stm::atomically;
+ atomically(|trans| {
+     // some action
+     // return value as `Result`, for example
+     Ok(42)
+ });
+ ```
 
-let x = stm!({
-    stm_call!(modify);
-    var.read()  // return the value saved in var
-}).atomically();
+ Calls to `atomically` should not be nested.
 
-println!("var = {}", x);
+ For running an atomic operation inside of another, pass a mutable reference to a `Transaction`
+ and call `try!` on the result. You should not handle the error yourself.
 
-```
+ ```
+ use stm::{atomically, TVar};
+ let var = TVar::new(0);
+
+ let x = atomically(|trans| {
+     try!(var.write(trans, 42));
+     var.read(trans) // return the value saved in var
+ });
+
+ println!("var = {}", x);
+
+ ```
 
 ## License
 

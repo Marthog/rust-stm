@@ -14,7 +14,7 @@ use std::any::Any;
 use std::marker::PhantomData;
 
 use super::result::*;
-use super::stm::{StmControlBlock};
+use super::transaction::control_block::{ControlBlock};
 use super::Transaction;
 
 /// contains all the useful data for a Var while beeing the same type
@@ -23,7 +23,7 @@ use super::Transaction;
 /// is just a typesafe wrapper around it
 pub struct VarControlBlock {
     /// list of all waiting threads protected by a mutex
-    waiting_threads: Mutex<Vec<Weak<StmControlBlock>>>,
+    waiting_threads: Mutex<Vec<Weak<ControlBlock>>>,
 
     /// counter for all dead threads
     ///
@@ -85,7 +85,7 @@ impl VarControlBlock {
     }
 
     /// Add another thread, that waits for mutations of `self`.
-    pub fn wait(&self, thread: &Arc<StmControlBlock>) {
+    pub fn wait(&self, thread: &Arc<ControlBlock>) {
         let mut guard = self.waiting_threads.lock().unwrap();
 
         guard.push(Arc::downgrade(thread));
@@ -149,7 +149,7 @@ impl PartialOrd for VarControlBlock {
 
 /// A variable that can be used in a STM-Block
 #[derive(Clone)]
-pub struct Var<T> {
+pub struct TVar<T> {
     /// the control block is the inner of the variable
     /// 
     /// the rest is just the typesafe interface
@@ -159,12 +159,12 @@ pub struct Var<T> {
     _marker: PhantomData<T>,
 }
 
-impl<T> Var<T>
+impl<T> TVar<T>
     where T: Any + Sync + Send + Clone
 {
     /// create a new var
-    pub fn new(val: T) -> Var<T> {
-        Var {
+    pub fn new(val: T) -> TVar<T> {
+        TVar {
             control_block: VarControlBlock::new(val),
             _marker: PhantomData,
         }
@@ -183,12 +183,10 @@ impl<T> Var<T>
     /// This is a faster alternative to 
     ///
     /// ```
-    /// # #[macro_use] extern crate stm;
-    /// # use stm::*;
-    /// # fn main() {
-    /// # let var = Var::new(0);
+    /// use stm::*;
+    ///
+    /// let var = TVar::new(0);
     /// atomically(|trans| var.read(trans));
-    /// # }
     /// ```
     ///
     pub fn read_atomic(&self) -> T {
@@ -204,7 +202,7 @@ impl<T> Var<T>
     ///
     /// this is mostly used internally but can be useful in
     /// certain cases where the additional clone performed
-    /// by read_atomic is not wanted
+    /// by read_atomic is unwanted
     pub fn read_ref_atomic(&self) -> Arc<Any + Send + Sync> {
         self.control_block
             .value
@@ -213,38 +211,22 @@ impl<T> Var<T>
             .clone()
     }
 
-    /// the normal way to access a var
+    /// The normal way to access a var.
     ///
-    /// it is used to read a var from inside of a STM-Block
-    ///
-    /// # Panics
-    ///
-    /// Panics when called from outside of a STM-Block
-    ///
+    /// It is equivalent to `transaction.read(&var)`, but more
+    /// ergonomic.
     pub fn read(&self, transaction: &mut Transaction) -> StmResult<T> {
         transaction.read(&self)
     }
 
-    /// the normal way to write a var
+    /// The normal way to write a var.
     ///
-    /// it is used to write a var from inside of a STM-Block
-    /// and does not immediately write but wait for commit
-    ///
-    /// # Panics
-    ///
-    /// Panics when called from outside of a STM-Block
-    ///
+    /// It is equivalent to `transaction.write(&var, value)`, but more
+    /// ergonomic.
     pub fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()> {
         transaction.write(&self, value)
     }
     
-    /// wake all threads that are waiting for this value
-    ///
-    /// this is mostly used internally
-    pub fn wake_all(&self) {
-        self.control_block.wake_all();
-    }
-
     /// access the control block of the var
     ///
     /// internal use only
@@ -256,40 +238,8 @@ impl<T> Var<T>
 
 /// test if a waiting and waking of threads works
 #[test]
-fn test_wait() {
-    use std::thread;
-    use std::sync::mpsc::channel;
-    use std::time::Duration;
+fn test_read_atomic() {
+    let var = TVar::new(42);
 
-    // don't create a complete STM block
-    let ctrl = Arc::new(StmControlBlock::new());
-
-    let var = Var::new(vec![1, 2, 3, 4]);
-
-    let (tx, rx) = channel();
-
-    // add to list of blocked things
-    var.control_block.wait(&ctrl);
-    // wake me again
-    var.wake_all();
-
-
-    let ctrl2 = ctrl.clone();
-    // there is no way to ensure that the semaphore has been unlocked
-    let handle = thread::spawn(move || {
-        // 300 ms should be enough, otherwise way to slow
-        thread::sleep(Duration::from_millis(300));
-        let err = rx.try_recv().is_err();
-        ctrl2.set_changed();
-        if err {
-            panic!("semaphore not released before timeout");
-        }
-    });
-
-    // get semaphore
-    ctrl.wait();
-
-    let _ = tx.send(());
-
-    let _ = handle.join();
+    assert_eq!(42, var.read_atomic());
 }

@@ -6,23 +6,19 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-
 use std::sync::{Mutex, Condvar};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::Transaction;
-use super::result::*;
-
 #[cfg(test)]
-use super::Var;
+use super::super::test::{terminates, terminates_async};
 
-/// A control block for a currently running STM instance
+// A control block for a currently running STM instance
 ///
 /// STM blocks on all read variables if retry was called
 /// this control block is used to let the vars inform the STM instance
 ///
 /// Be careful when using this, because you can easily create deadlocks.
-pub struct StmControlBlock {
+pub struct ControlBlock {
     // a simple binary semaphore to unblock
     /// boolean storing true, if the ControlBlock is still blocked.
     /// It could be put in the mutex, but that may
@@ -39,10 +35,10 @@ pub struct StmControlBlock {
 }
 
 
-impl StmControlBlock {
+impl ControlBlock {
     /// create a new StmControlBlock
-    pub fn new() -> StmControlBlock {
-        StmControlBlock {
+    pub fn new() -> ControlBlock {
+        ControlBlock {
             blocked: AtomicBool::new(true),
             lock: Mutex::new(()),
             wait_cvar: Condvar::new(),
@@ -74,64 +70,57 @@ impl StmControlBlock {
     }
 }
 
-/// call retry in `stm_call!` to let the STM manually run again
+
+// TESTS
+
+/// Test if ControlBlock correctly blocks on `wait`.
+#[test]
+fn test_blocked() {
+    let ctrl = ControlBlock::new();
+    // waiting should immediately finish
+    assert!(!terminates(10, move || ctrl.wait()));
+}
+
+/// A ControlBlock does immediately return,
+/// when it was set to changed before calling waiting.
 ///
-/// this will block until at least one of the read vars has changed
-///
-/// # Examples
-///
-/// ```no_run
-/// use stm::*;
-/// let infinite_retry: i32 = atomically(|_| retry());
-/// ```
-
-pub fn retry<T>() -> StmResult<T> {
-    Err(StmError::Retry)
-}
-
-pub fn atomically<T, F>(f: F) -> T
-where F: Fn(&mut Transaction) -> StmResult<T>
-{
-    Transaction::with(f)
-}
+/// This can occur, when a variable changes, while the
+/// transaction is registered on other variables.
 #[test]
-fn test_stm_simple() {
-    let x = atomically(|_| Ok(42));
-    assert_eq!(x, 42);
+fn test_wait_after_change() {
+    let ctrl = ControlBlock::new();
+    // set to changed
+    ctrl.set_changed();
+    // waiting should immediately finish
+    assert!(terminates(10, move || ctrl.wait()));
 }
 
-
+/// Test calling `set_changed` multiple times.
 #[test]
-fn test_stm_read() {
-    let read = Var::new(42);
+fn test_wait_after_multiple_changes() {
+    let ctrl = ControlBlock::new();
+    // set to changed
+    ctrl.set_changed();
+    ctrl.set_changed();
+    ctrl.set_changed();
+    ctrl.set_changed();
 
-    let x = atomically(|trans| {
-        read.read(trans)
-    });
-
-    assert_eq!(x, 42);
+    // waiting should immediately finish
+    assert!(terminates(10, move || ctrl.wait()));
 }
 
+
+/// Perform a wakeup from another thread.
 #[test]
-fn test_stm_write() {
-    let write = Var::new(42);
+fn test_wait_threaded_wakeup() {
+    use std::sync::Arc;
 
-    atomically(|trans| {
-        write.write(trans, 0)
-    });
+    let ctrl = Arc::new(ControlBlock::new());
+    let ctrl2 = ctrl.clone();
+    let terminated = terminates_async(100,
+                                move || ctrl.wait(),
+                                move || ctrl2.set_changed());
 
-    assert_eq!(write.read_atomic(), 0);
+    assert!(terminated);
 }
 
-#[test]
-fn test_stm_copy() {
-    let read = Var::new(42);
-    let write = Var::new(0);
-
-    atomically(|trans| {
-        let r = try!(read.read(trans));
-        write.write(trans, r)
-    });
-
-    assert_eq!(write.read_atomic(), 42);
-}
