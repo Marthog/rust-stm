@@ -4,11 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `var.rs`.">
+    <meta name="description" content="Source to the Rust file `src/var.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>var.rs.html -- source</title>
 
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../main.css">
 
     
@@ -285,57 +286,25 @@
 <span id="243">243</span>
 <span id="244">244</span>
 <span id="245">245</span>
-<span id="246">246</span>
-<span id="247">247</span>
-<span id="248">248</span>
-<span id="249">249</span>
-<span id="250">250</span>
-<span id="251">251</span>
-<span id="252">252</span>
-<span id="253">253</span>
-<span id="254">254</span>
-<span id="255">255</span>
-<span id="256">256</span>
-<span id="257">257</span>
-<span id="258">258</span>
-<span id="259">259</span>
-<span id="260">260</span>
-<span id="261">261</span>
-<span id="262">262</span>
-<span id="263">263</span>
-<span id="264">264</span>
-<span id="265">265</span>
-<span id="266">266</span>
-<span id="267">267</span>
-<span id="268">268</span>
-<span id="269">269</span>
-<span id="270">270</span>
-<span id="271">271</span>
-<span id="272">272</span>
-<span id="273">273</span>
-<span id="274">274</span>
-<span id="275">275</span>
-<span id="276">276</span>
-<span id="277">277</span>
-<span id="278">278</span>
-<span id="279">279</span>
-<span id="280">280</span>
-<span id="281">281</span>
-<span id="282">282</span>
-<span id="283">283</span>
-<span id="284">284</span>
-<span id="285">285</span>
-<span id="286">286</span>
 </pre><pre class='rust '>
-<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::{<span class='ident'>Arc</span>, <span class='ident'>Mutex</span>, <span class='ident'>RwLock</span>};
+<span class='comment'>// Copyright 2015-2016 rust-stm Developers</span>
+<span class='comment'>//</span>
+<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
+<span class='comment'>// except according to those terms.</span>
+
+<span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::{<span class='ident'>Arc</span>, <span class='ident'>Weak</span>, <span class='ident'>Mutex</span>, <span class='ident'>RwLock</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>mem</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>atomic</span>::{<span class='self'>self</span>, <span class='ident'>AtomicUsize</span>};
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>cmp</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>any</span>::<span class='ident'>Any</span>;
 <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>marker</span>::<span class='ident'>PhantomData</span>;
 
-<span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>stm</span>::{<span class='ident'>with_log</span>, <span class='ident'>StmControlBlock</span>};
-
+<span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>result</span>::<span class='op'>*</span>;
+<span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>transaction</span>::<span class='ident'>control_block</span>::{<span class='ident'>ControlBlock</span>};
+<span class='kw'>use</span> <span class='ident'>super</span>::<span class='ident'>Transaction</span>;
 
 <span class='doccomment'>/// contains all the useful data for a Var while beeing the same type</span>
 <span class='doccomment'>///</span>
@@ -343,7 +312,7 @@
 <span class='doccomment'>/// is just a typesafe wrapper around it</span>
 <span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>VarControlBlock</span> {
     <span class='doccomment'>/// list of all waiting threads protected by a mutex</span>
-    <span class='ident'>waiting_threads</span>: <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>StmControlBlock</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
+    <span class='ident'>waiting_threads</span>: <span class='ident'>Mutex</span><span class='op'>&lt;</span><span class='ident'>Vec</span><span class='op'>&lt;</span><span class='ident'>Weak</span><span class='op'>&lt;</span><span class='ident'>ControlBlock</span><span class='op'>&gt;&gt;</span><span class='op'>&gt;</span>,
 
     <span class='doccomment'>/// counter for all dead threads</span>
     <span class='doccomment'>///</span>
@@ -367,14 +336,14 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// starvation may occur when one thread wants to write-lock but others</span>
     <span class='doccomment'>/// hold read-locks</span>
-    <span class='kw'>pub</span> <span class='ident'>value</span>: <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>Any</span><span class='op'>+</span><span class='ident'>Send</span><span class='op'>+</span><span class='ident'>Sync</span><span class='op'>&gt;&gt;</span>,
+    <span class='kw'>pub</span> <span class='ident'>value</span>: <span class='ident'>RwLock</span><span class='op'>&lt;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span> <span class='op'>+</span> <span class='ident'>Sync</span><span class='op'>&gt;&gt;</span>,
 }
 
 
 <span class='kw'>impl</span> <span class='ident'>VarControlBlock</span> {
     <span class='doccomment'>/// create a new empty `VarControlBlock`</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>(<span class='ident'>val</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>VarControlBlock</span><span class='op'>&gt;</span>
-        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Any</span><span class='op'>+</span><span class='ident'>Sync</span><span class='op'>+</span><span class='ident'>Send</span>
+        <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Sync</span> <span class='op'>+</span> <span class='ident'>Send</span>
     {
         <span class='kw'>let</span> <span class='ident'>ctrl</span> <span class='op'>=</span> <span class='ident'>VarControlBlock</span> {
             <span class='ident'>waiting_threads</span>: <span class='ident'>Mutex</span>::<span class='ident'>new</span>(<span class='ident'>Vec</span>::<span class='ident'>new</span>()),
@@ -386,26 +355,29 @@
 
     <span class='doccomment'>/// wake all threads that are waiting for the used var</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wake_all</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
-        <span class='comment'>// atomically take all waiting threads from the value</span>
+        <span class='comment'>// Atomically take all waiting threads from the value.</span>
         <span class='kw'>let</span> <span class='ident'>threads</span> <span class='op'>=</span> {
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>waiting_threads</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
             <span class='kw'>let</span> <span class='ident'>inner</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Vec</span><span class='op'>&lt;</span>_<span class='op'>&gt;</span> <span class='op'>=</span> <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>guard</span>;
             <span class='ident'>mem</span>::<span class='ident'>replace</span>(<span class='ident'>inner</span>, <span class='ident'>Vec</span>::<span class='ident'>new</span>())
         };
 
-        <span class='comment'>// release all the semaphores to start the thread</span>
+        <span class='comment'>// Take all, that are still alive.</span>
+        <span class='kw'>let</span> <span class='ident'>threads</span> <span class='op'>=</span> <span class='ident'>threads</span>.<span class='ident'>iter</span>()
+            .<span class='ident'>filter_map</span>(<span class='ident'>Weak</span>::<span class='ident'>upgrade</span>);
+
+        <span class='comment'>// Release all the semaphores to start the thread.</span>
         <span class='kw'>for</span> <span class='ident'>thread</span> <span class='kw'>in</span> <span class='ident'>threads</span> {
-            <span class='comment'>// inform thread that this var has changed</span>
+            <span class='comment'>// Inform thread that this var has changed.</span>
             <span class='ident'>thread</span>.<span class='ident'>set_changed</span>();
         }
     }
 
-    <span class='doccomment'>/// add another thread that waits for mutations of `self`</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>thread</span>: <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>StmControlBlock</span><span class='op'>&gt;</span>) {
+    <span class='doccomment'>/// Add another thread, that waits for mutations of `self`.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wait</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>thread</span>: <span class='kw-2'>&amp;</span><span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>ControlBlock</span><span class='op'>&gt;</span>) {
         <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>waiting_threads</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
-        
-        <span class='comment'>// add new one</span>
-        <span class='ident'>guard</span>.<span class='ident'>push</span>(<span class='ident'>thread</span>);
+
+        <span class='ident'>guard</span>.<span class='ident'>push</span>(<span class='ident'>Arc</span>::<span class='ident'>downgrade</span>(<span class='ident'>thread</span>));
     }
 
     <span class='doccomment'>/// mark another `StmControlBlock` as dead</span>
@@ -420,17 +392,17 @@
         <span class='kw'>let</span> <span class='ident'>deads</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>dead_threads</span>.<span class='ident'>fetch_add</span>(<span class='number'>1</span>, <span class='ident'>atomic</span>::<span class='ident'>Ordering</span>::<span class='ident'>Relaxed</span>);
 
         <span class='comment'>// if there are too many then cleanup</span>
-        
+
         <span class='comment'>// there is a potential data race that may occure when</span>
         <span class='comment'>// one thread reads the number and then operates on</span>
         <span class='comment'>// outdated data but that causes just unnecessary locks</span>
         <span class='comment'>// to occur and nothing serious</span>
-        <span class='kw'>if</span> <span class='ident'>deads</span><span class='op'>&gt;=</span><span class='number'>64</span> {
+        <span class='kw'>if</span> <span class='ident'>deads</span> <span class='op'>&gt;=</span> <span class='number'>64</span> {
             <span class='kw'>let</span> <span class='kw-2'>mut</span> <span class='ident'>guard</span> <span class='op'>=</span> <span class='self'>self</span>.<span class='ident'>waiting_threads</span>.<span class='ident'>lock</span>().<span class='ident'>unwrap</span>();
             <span class='self'>self</span>.<span class='ident'>dead_threads</span>.<span class='ident'>store</span>(<span class='number'>0</span>, <span class='ident'>atomic</span>::<span class='ident'>Ordering</span>::<span class='ident'>SeqCst</span>);
 
             <span class='comment'>// remove all dead ones possibly free up the memory</span>
-            <span class='ident'>guard</span>.<span class='ident'>retain</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='op'>!</span><span class='ident'>t</span>.<span class='ident'>is_dead</span>());
+            <span class='ident'>guard</span>.<span class='ident'>retain</span>(<span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>upgrade</span>().<span class='ident'>is_some</span>());
         }
     }
 
@@ -444,12 +416,11 @@
 
 <span class='kw'>impl</span> <span class='ident'>PartialEq</span> <span class='kw'>for</span> <span class='ident'>VarControlBlock</span> {
     <span class='kw'>fn</span> <span class='ident'>eq</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>bool</span> {
-        <span class='self'>self</span>.<span class='ident'>get_address</span>()<span class='op'>==</span><span class='ident'>other</span>.<span class='ident'>get_address</span>()
+        <span class='self'>self</span>.<span class='ident'>get_address</span>() <span class='op'>==</span> <span class='ident'>other</span>.<span class='ident'>get_address</span>()
     }
 }
 
-<span class='kw'>impl</span> <span class='ident'>Eq</span> <span class='kw'>for</span> <span class='ident'>VarControlBlock</span> {
-}
+<span class='kw'>impl</span> <span class='ident'>Eq</span> <span class='kw'>for</span> <span class='ident'>VarControlBlock</span> {}
 
 <span class='kw'>impl</span> <span class='ident'>Ord</span> <span class='kw'>for</span> <span class='ident'>VarControlBlock</span> {
     <span class='kw'>fn</span> <span class='ident'>cmp</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>other</span>: <span class='kw-2'>&amp;</span><span class='kw'>Self</span>) <span class='op'>-&gt;</span> <span class='ident'>cmp</span>::<span class='ident'>Ordering</span> {
@@ -467,22 +438,22 @@
 
 <span class='doccomment'>/// A variable that can be used in a STM-Block</span>
 <span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Clone</span>)]</span>
-<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>Var</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+<span class='kw'>pub</span> <span class='kw'>struct</span> <span class='ident'>TVar</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
     <span class='doccomment'>/// the control block is the inner of the variable</span>
     <span class='doccomment'>/// </span>
     <span class='doccomment'>/// the rest is just the typesafe interface</span>
     <span class='ident'>control_block</span>: <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>VarControlBlock</span><span class='op'>&gt;</span>,
     <span class='doccomment'>/// this marker is needed so that the variable can be used in a threadsafe</span>
     <span class='doccomment'>/// manner</span>
-    <span class='ident'>_marker</span>: <span class='ident'>PhantomData</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>
+    <span class='ident'>_marker</span>: <span class='ident'>PhantomData</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>,
 }
 
-<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>Var</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>
-    <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Any</span><span class='op'>+</span><span class='ident'>Sync</span><span class='op'>+</span><span class='ident'>Send</span><span class='op'>+</span><span class='ident'>Clone</span>
+<span class='kw'>impl</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='ident'>TVar</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>
+    <span class='kw'>where</span> <span class='ident'>T</span>: <span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Sync</span> <span class='op'>+</span> <span class='ident'>Send</span> <span class='op'>+</span> <span class='ident'>Clone</span>
 {
     <span class='doccomment'>/// create a new var</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>val</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>Var</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
-        <span class='ident'>Var</span> {
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>new</span>(<span class='ident'>val</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>TVar</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+        <span class='ident'>TVar</span> {
             <span class='ident'>control_block</span>: <span class='ident'>VarControlBlock</span>::<span class='ident'>new</span>(<span class='ident'>val</span>),
             <span class='ident'>_marker</span>: <span class='ident'>PhantomData</span>,
         }
@@ -501,13 +472,10 @@
     <span class='doccomment'>/// This is a faster alternative to </span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// ```</span>
-    <span class='doccomment'>/// # #[macro_use] extern crate stm;</span>
-    <span class='doccomment'>/// # use stm::*;</span>
-    <span class='doccomment'>/// # fn main() {</span>
-    <span class='doccomment'>/// # let var = Var::new(0);</span>
-    <span class='doccomment'>/// stm!(var.read_atomic())</span>
-    <span class='doccomment'>///     .atomically();</span>
-    <span class='doccomment'>/// # }</span>
+    <span class='doccomment'>/// use stm::*;</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// let var = TVar::new(0);</span>
+    <span class='doccomment'>/// atomically(|trans| var.read(trans));</span>
     <span class='doccomment'>/// ```</span>
     <span class='doccomment'>///</span>
     <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read_atomic</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>T</span> {
@@ -523,8 +491,8 @@
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// this is mostly used internally but can be useful in</span>
     <span class='doccomment'>/// certain cases where the additional clone performed</span>
-    <span class='doccomment'>/// by read_atomic is not wanted</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read_ref_atomic</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>Any</span><span class='op'>+</span><span class='ident'>Send</span><span class='op'>+</span><span class='ident'>Sync</span><span class='op'>&gt;</span> {
+    <span class='doccomment'>/// by read_atomic is unwanted</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read_ref_atomic</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>Arc</span><span class='op'>&lt;</span><span class='ident'>Any</span> <span class='op'>+</span> <span class='ident'>Send</span> <span class='op'>+</span> <span class='ident'>Sync</span><span class='op'>&gt;</span> {
         <span class='self'>self</span>.<span class='ident'>control_block</span>
             .<span class='ident'>value</span>
             .<span class='ident'>read</span>()
@@ -532,38 +500,22 @@
             .<span class='ident'>clone</span>()
     }
 
-    <span class='doccomment'>/// the normal way to access a var</span>
+    <span class='doccomment'>/// The normal way to access a var.</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// it is used to read a var from inside of a STM-Block</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Panics</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Panics when called from outside of a STM-Block</span>
-    <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) <span class='op'>-&gt;</span> <span class='ident'>T</span> {
-        <span class='ident'>with_log</span>(<span class='op'>|</span><span class='ident'>log</span><span class='op'>|</span> <span class='ident'>log</span>.<span class='ident'>read_var</span>(<span class='self'>self</span>))
+    <span class='doccomment'>/// It is equivalent to `transaction.read(&amp;var)`, but more</span>
+    <span class='doccomment'>/// ergonomic.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>transaction</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Transaction</span>) <span class='op'>-&gt;</span> <span class='ident'>StmResult</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+        <span class='ident'>transaction</span>.<span class='ident'>read</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>)
     }
 
-    <span class='doccomment'>/// the normal way to write a var</span>
+    <span class='doccomment'>/// The normal way to write a var.</span>
     <span class='doccomment'>///</span>
-    <span class='doccomment'>/// it is used to write a var from inside of a STM-Block</span>
-    <span class='doccomment'>/// and does not immediately write but wait for commit</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// # Panics</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// Panics when called from outside of a STM-Block</span>
-    <span class='doccomment'>///</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) {
-        <span class='ident'>with_log</span>(<span class='op'>|</span><span class='ident'>log</span><span class='op'>|</span> <span class='ident'>log</span>.<span class='ident'>write_var</span>(<span class='self'>self</span>, <span class='ident'>value</span>));
+    <span class='doccomment'>/// It is equivalent to `transaction.write(&amp;var, value)`, but more</span>
+    <span class='doccomment'>/// ergonomic.</span>
+    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>transaction</span>: <span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Transaction</span>, <span class='ident'>value</span>: <span class='ident'>T</span>) <span class='op'>-&gt;</span> <span class='ident'>StmResult</span><span class='op'>&lt;</span>()<span class='op'>&gt;</span> {
+        <span class='ident'>transaction</span>.<span class='ident'>write</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>, <span class='ident'>value</span>)
     }
-
-    <span class='doccomment'>/// wake all threads that are waiting for this value</span>
-    <span class='doccomment'>///</span>
-    <span class='doccomment'>/// this is mostly used internally</span>
-    <span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>wake_all</span>(<span class='kw-2'>&amp;</span><span class='self'>self</span>) {
-        <span class='self'>self</span>.<span class='ident'>control_block</span>.<span class='ident'>wake_all</span>();
-    }
-
+    
     <span class='doccomment'>/// access the control block of the var</span>
     <span class='doccomment'>///</span>
     <span class='doccomment'>/// internal use only</span>
@@ -573,46 +525,13 @@
 }
 
 
-
 <span class='doccomment'>/// test if a waiting and waking of threads works</span>
 <span class='attribute'>#[<span class='ident'>test</span>]</span>
-<span class='kw'>fn</span> <span class='ident'>test_wait</span>() {
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>mpsc</span>::<span class='ident'>channel</span>;
+<span class='kw'>fn</span> <span class='ident'>test_read_atomic</span>() {
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>42</span>);
 
-    <span class='comment'>// don&#39;t create a complete STM block</span>
-    <span class='kw'>let</span> <span class='ident'>ctrl</span> <span class='op'>=</span> <span class='ident'>Arc</span>::<span class='ident'>new</span>(<span class='ident'>StmControlBlock</span>::<span class='ident'>new</span>());
-
-    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>Var</span>::<span class='ident'>new</span>(<span class='macro'>vec</span><span class='macro'>!</span>[<span class='number'>1</span>,<span class='number'>2</span>,<span class='number'>3</span>,<span class='number'>4</span>]);
-
-    <span class='kw'>let</span> (<span class='ident'>tx</span>, <span class='ident'>rx</span>) <span class='op'>=</span> <span class='ident'>channel</span>();
-
-    <span class='comment'>// add to list of blocked things</span>
-    <span class='ident'>var</span>.<span class='ident'>control_block</span>.<span class='ident'>wait</span>(<span class='ident'>ctrl</span>.<span class='ident'>clone</span>());
-    <span class='comment'>// wake me again</span>
-    <span class='ident'>var</span>.<span class='ident'>wake_all</span>();
-
-
-    <span class='kw'>let</span> <span class='ident'>ctrl2</span> <span class='op'>=</span> <span class='ident'>ctrl</span>.<span class='ident'>clone</span>();
-    <span class='comment'>// there is no way to ensure that the semaphore has been unlocked</span>
-    <span class='kw'>let</span> <span class='ident'>handle</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
-        <span class='comment'>// 300 ms should be enough, otherwise way to slow</span>
-        <span class='ident'>thread</span>::<span class='ident'>sleep_ms</span>(<span class='number'>300</span>);
-        <span class='kw'>let</span> <span class='ident'>err</span> <span class='op'>=</span> <span class='ident'>rx</span>.<span class='ident'>try_recv</span>().<span class='ident'>is_err</span>();
-        <span class='ident'>ctrl2</span>.<span class='ident'>set_changed</span>();
-        <span class='kw'>if</span> <span class='ident'>err</span> {
-            <span class='macro'>panic</span><span class='macro'>!</span>(<span class='string'>&quot;semaphore not released before timeout&quot;</span>);
-        }
-    });
-
-    <span class='comment'>// get semaphore</span>
-    <span class='ident'>ctrl</span>.<span class='ident'>wait</span>();
-
-    <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>tx</span>.<span class='ident'>send</span>(());
-
-    <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>handle</span>.<span class='ident'>join</span>();
+    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='number'>42</span>, <span class='ident'>var</span>.<span class='ident'>read_atomic</span>());
 }
-
 </pre>
 </section>
     <section id='search' class="content hidden"></section>
@@ -673,6 +592,6 @@
     <script src="../../jquery.js"></script>
     <script src="../../main.js"></script>
     
-    <script async src="../../search-index.js"></script>
+    <script defer src="../../search-index.js"></script>
 </body>
 </html>

@@ -4,11 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="API documentation for the Rust `Var` struct in crate `stm`.">
-    <meta name="keywords" content="rust, rustlang, rust-lang, Var">
+    <meta name="description" content="API documentation for the Rust `TVar` struct in crate `stm`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, TVar">
 
-    <title>stm::Var - Rust</title>
+    <title>stm::TVar - Rust</title>
 
+    <link rel="stylesheet" type="text/css" href="../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../main.css">
 
     
@@ -26,7 +27,7 @@
 
     <nav class="sidebar">
         
-        <p class='location'><a href='index.html'>stm</a></p><script>window.sidebarCurrent = {name: 'Var', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+        <p class='location'><a href='index.html'>stm</a></p><script>window.sidebarCurrent = {name: 'TVar', ty: 'struct', relpath: ''};</script><script defer src="sidebar-items.js"></script>
     </nav>
 
     <nav class="sub">
@@ -41,15 +42,15 @@
     </nav>
 
     <section id='main' class="content struct">
-<h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>stm</a>::<wbr><a class='struct' href=''>Var</a></span><span class='out-of-band'><span id='render-detail'>
+<h1 class='fqn'><span class='in-band'>Struct <a href='index.html'>stm</a>::<wbr><a class='struct' href=''>TVar</a></span><span class='out-of-band'><span id='render-detail'>
             <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                 [<span class='inner'>&#x2212;</span>]
             </a>
-        </span><a id='src-1567' class='srclink' href='../src/stm/var.rs.html#141-149' title='goto source code'>[src]</a></span></h1>
-<pre class='rust struct'>pub struct Var&lt;T&gt; {
+        </span><a id='src-251' class='srclink' href='../src/stm/var.rs.html#152-160' title='goto source code'>[src]</a></span></h1>
+<pre class='rust struct'>pub struct TVar&lt;T&gt; {
     // some fields omitted
 }</pre><div class='docblock'><p>A variable that can be used in a STM-Block</p>
-</div><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl&lt;T&gt; <a class='struct' href='../stm/struct.Var.html' title='stm::Var'>Var</a>&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/any/trait.Any.html' title='core::any::Any'>Any</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html' title='core::marker::Sync'>Sync</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Send.html' title='core::marker::Send'>Send</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span></code></h3><div class='impl-items'><h4 id='method.new' class='method'><code>fn <a href='#method.new' class='fnname'>new</a>(val: T) -&gt; <a class='struct' href='../stm/struct.Var.html' title='stm::Var'>Var</a>&lt;T&gt;</code></h4>
+</div><h2 id='methods'>Methods</h2><h3 class='impl'><code>impl&lt;T&gt; <a class='struct' href='../stm/struct.TVar.html' title='stm::TVar'>TVar</a>&lt;T&gt; <span class='where'>where T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/any/trait.Any.html' title='core::any::Any'>Any</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html' title='core::marker::Sync'>Sync</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Send.html' title='core::marker::Send'>Send</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a></span></code></h3><div class='impl-items'><h4 id='method.new' class='method'><code>fn <a href='#method.new' class='fnname'>new</a>(val: T) -&gt; <a class='struct' href='../stm/struct.TVar.html' title='stm::TVar'>TVar</a>&lt;T&gt;</code></h4>
 <div class='docblock'><p>create a new var</p>
 </div><h4 id='method.read_atomic' class='method'><code>fn <a href='#method.read_atomic' class='fnname'>read_atomic</a>(&amp;self) -&gt; T</code></h4>
 <div class='docblock'><p>read a value atomically</p>
@@ -64,40 +65,31 @@ a side effect which may break STM-semantics</p>
 
 <p>This is a faster alternative to </p>
 <pre class='rust rust-example-rendered'>
-<span class='macro'>stm</span><span class='macro'>!</span>(<span class='ident'>var</span>.<span class='ident'>read_atomic</span>())
-    .<span class='ident'>atomically</span>();</pre>
+<span class='kw'>use</span> <span class='ident'>stm</span>::<span class='op'>*</span>;
+
+<span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
+<span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> <span class='ident'>var</span>.<span class='ident'>read</span>(<span class='ident'>trans</span>));</pre>
 </div><h4 id='method.read_ref_atomic' class='method'><code>fn <a href='#method.read_ref_atomic' class='fnname'>read_ref_atomic</a>(&amp;self) -&gt; <a class='struct' href='https://doc.rust-lang.org/nightly/alloc/arc/struct.Arc.html' title='alloc::arc::Arc'>Arc</a>&lt;<a class='trait' href='https://doc.rust-lang.org/nightly/core/any/trait.Any.html' title='core::any::Any'>Any</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Send.html' title='core::marker::Send'>Send</a> + <a class='trait' href='https://doc.rust-lang.org/nightly/core/marker/trait.Sync.html' title='core::marker::Sync'>Sync</a>&gt;</code></h4>
 <div class='docblock'><p>read a value atomically but return a reference</p>
 
 <p>this is mostly used internally but can be useful in
 certain cases where the additional clone performed
-by read_atomic is not wanted</p>
-</div><h4 id='method.read' class='method'><code>fn <a href='#method.read' class='fnname'>read</a>(&amp;self) -&gt; T</code></h4>
-<div class='docblock'><p>the normal way to access a var</p>
+by read_atomic is unwanted</p>
+</div><h4 id='method.read' class='method'><code>fn <a href='#method.read' class='fnname'>read</a>(&amp;self, transaction: &amp;mut <a class='struct' href='../stm/struct.Transaction.html' title='stm::Transaction'>Transaction</a>) -&gt; <a class='type' href='../stm/type.StmResult.html' title='stm::StmResult'>StmResult</a>&lt;T&gt;</code></h4>
+<div class='docblock'><p>The normal way to access a var.</p>
 
-<p>it is used to read a var from inside of a STM-Block</p>
+<p>It is equivalent to <code>transaction.read(&amp;var)</code>, but more
+ergonomic.</p>
+</div><h4 id='method.write' class='method'><code>fn <a href='#method.write' class='fnname'>write</a>(&amp;self, transaction: &amp;mut <a class='struct' href='../stm/struct.Transaction.html' title='stm::Transaction'>Transaction</a>, value: T) -&gt; <a class='type' href='../stm/type.StmResult.html' title='stm::StmResult'>StmResult</a>&lt;<a class='primitive' href='https://doc.rust-lang.org/nightly/std/primitive.tuple.html'>()</a>&gt;</code></h4>
+<div class='docblock'><p>The normal way to write a var.</p>
 
-<h1 id="panics" class='section-header'><a
-                           href="#panics">Panics</a></h1>
-<p>Panics when called from outside of a STM-Block</p>
-</div><h4 id='method.write' class='method'><code>fn <a href='#method.write' class='fnname'>write</a>(&amp;self, value: T)</code></h4>
-<div class='docblock'><p>the normal way to write a var</p>
-
-<p>it is used to write a var from inside of a STM-Block
-and does not immediately write but wait for commit</p>
-
-<h1 id="panics" class='section-header'><a
-                           href="#panics">Panics</a></h1>
-<p>Panics when called from outside of a STM-Block</p>
-</div><h4 id='method.wake_all' class='method'><code>fn <a href='#method.wake_all' class='fnname'>wake_all</a>(&amp;self)</code></h4>
-<div class='docblock'><p>wake all threads that are waiting for this value</p>
-
-<p>this is mostly used internally</p>
+<p>It is equivalent to <code>transaction.write(&amp;var, value)</code>, but more
+ergonomic.</p>
 </div><h4 id='method.control_block' class='method'><code>fn <a href='#method.control_block' class='fnname'>control_block</a>(&amp;self) -&gt; &amp;<a class='struct' href='https://doc.rust-lang.org/nightly/alloc/arc/struct.Arc.html' title='alloc::arc::Arc'>Arc</a>&lt;VarControlBlock&gt;</code></h4>
 <div class='docblock'><p>access the control block of the var</p>
 
 <p>internal use only</p>
-</div></div><h2 id='implementations'>Trait Implementations</h2><h3 id='derived_implementations'>Derived Implementations </h3><h3 class='impl'><code>impl&lt;T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a>&gt; <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a> for <a class='struct' href='../stm/struct.Var.html' title='stm::Var'>Var</a>&lt;T&gt;</code></h3><div class='impl-items'><h4 id='method.clone' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html#method.clone' class='fnname'>clone</a>(&amp;self) -&gt; <a class='struct' href='../stm/struct.Var.html' title='stm::Var'>Var</a>&lt;T&gt;</code></h4>
+</div></div><h2 id='implementations'>Trait Implementations</h2><h3 id='derived_implementations'>Derived Implementations </h3><h3 class='impl'><code>impl&lt;T: <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a>&gt; <a class='trait' href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html' title='core::clone::Clone'>Clone</a> for <a class='struct' href='../stm/struct.TVar.html' title='stm::TVar'>TVar</a>&lt;T&gt;</code></h3><div class='impl-items'><h4 id='method.clone' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html#method.clone' class='fnname'>clone</a>(&amp;self) -&gt; <a class='struct' href='../stm/struct.TVar.html' title='stm::TVar'>TVar</a>&lt;T&gt;</code></h4>
 <h4 id='method.clone_from' class='method'><code>fn <a href='https://doc.rust-lang.org/nightly/core/clone/trait.Clone.html#method.clone_from' class='fnname'>clone_from</a>(&amp;mut self, source: &amp;Self)</code></h4>
 </div></section>
     <section id='search' class="content hidden"></section>
@@ -158,6 +150,6 @@ and does not immediately write but wait for commit</p>
     <script src="../jquery.js"></script>
     <script src="../main.js"></script>
     
-    <script async src="../search-index.js"></script>
+    <script defer src="../search-index.js"></script>
 </body>
 </html>

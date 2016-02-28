@@ -4,11 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="API documentation for the Rust `stm_call!` macro in crate `stm`.">
-    <meta name="keywords" content="rust, rustlang, rust-lang, stm_call!">
+    <meta name="description" content="API documentation for the Rust `StmResult` type in crate `stm`.">
+    <meta name="keywords" content="rust, rustlang, rust-lang, StmResult">
 
-    <title>stm::stm_call! - Rust</title>
+    <title>stm::StmResult - Rust</title>
 
+    <link rel="stylesheet" type="text/css" href="../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../main.css">
 
     
@@ -26,7 +27,7 @@
 
     <nav class="sidebar">
         
-        <p class='location'><a href='index.html'>stm</a></p><script>window.sidebarCurrent = {name: 'stm_call!', ty: 'macro', relpath: ''};</script><script defer src="sidebar-items.js"></script>
+        <p class='location'><a href='index.html'>stm</a></p><script>window.sidebarCurrent = {name: 'StmResult', ty: 'type', relpath: ''};</script><script defer src="sidebar-items.js"></script>
     </nav>
 
     <nav class="sub">
@@ -40,28 +41,20 @@
         </form>
     </nav>
 
-    <section id='main' class="content macro">
-<h1 class='fqn'><span class='in-band'><a href='index.html'>stm</a>::<wbr><a class='macro' href=''>stm_call!</a></span><span class='out-of-band'><span id='render-detail'>
+    <section id='main' class="content type">
+<h1 class='fqn'><span class='in-band'><a href='index.html'>stm</a>::<wbr><a class='type' href=''>StmResult</a></span><span class='out-of-band'><span id='render-detail'>
             <a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">
                 [<span class='inner'>&#x2212;</span>]
             </a>
-        </span><a id='src-1739' class='srclink' href='../src/stm/macros.rs.html#6-17' title='goto source code'>[src]</a></span></h1>
-<pre class='rust macro'>
-<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>stm_call</span> {
-    ( <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>:<span class='ident'>expr</span> )     <span class='op'>=&gt;</span> ({
-        <span class='kw'>use</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>StmResult</span>::<span class='op'>*</span>;
+        </span><a id='src-308' class='srclink' href='../src/stm/result.rs.html#22' title='goto source code'>[src]</a></span></h1>
+<pre class='rust typedef'>type StmResult&lt;T&gt; = <a class='enum' href='https://doc.rust-lang.org/nightly/core/result/enum.Result.html' title='core::result::Result'>Result</a>&lt;T, <a class='enum' href='../stm/enum.StmError.html' title='stm::StmError'>StmError</a>&gt;;</pre><div class='docblock'><p>StmResult is a result of a single step of a STM calculation.</p>
 
-        <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>.<span class='ident'>intern_run</span>();
-        <span class='kw'>match</span> <span class='ident'>ret</span> {
-            <span class='ident'>Success</span>(<span class='ident'>s</span>)  <span class='op'>=&gt;</span> <span class='ident'>s</span>,
-            <span class='ident'>Retry</span>       <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Retry</span>,
-            <span class='ident'>Failure</span>     <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Failure</span>
-        }
-    })
-}</pre>
-<div class='docblock'><p>call a STM function from inside of a STM block</p>
+<p>It informs of success or the type of failure. Normally you should not use
+it directly. Especially recovering from an error, e.g. by using <code>action1.or(action2)</code>
+can break the semantics of stm, and cause delayed wakeups or deadlocks.</p>
 
-<p>if we had control over stack unwinding we could use that</p>
+<p>For the later case, there is the <code>transaction.or(action1, action2)</code>, that
+is safe to use.</p>
 </div></section>
     <section id='search' class="content hidden"></section>
 
@@ -121,6 +114,6 @@
     <script src="../jquery.js"></script>
     <script src="../main.js"></script>
     
-    <script async src="../search-index.js"></script>
+    <script defer src="../search-index.js"></script>
 </body>
 </html>

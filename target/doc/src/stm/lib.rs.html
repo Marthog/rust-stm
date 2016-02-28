@@ -4,11 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `lib.rs`.">
+    <meta name="description" content="Source to the Rust file `src/lib.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
     <title>lib.rs.html -- source</title>
 
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../main.css">
 
     
@@ -252,7 +253,101 @@
 <span id="210">210</span>
 <span id="211">211</span>
 <span id="212">212</span>
+<span id="213">213</span>
+<span id="214">214</span>
+<span id="215">215</span>
+<span id="216">216</span>
+<span id="217">217</span>
+<span id="218">218</span>
+<span id="219">219</span>
+<span id="220">220</span>
+<span id="221">221</span>
+<span id="222">222</span>
+<span id="223">223</span>
+<span id="224">224</span>
+<span id="225">225</span>
+<span id="226">226</span>
+<span id="227">227</span>
+<span id="228">228</span>
+<span id="229">229</span>
+<span id="230">230</span>
+<span id="231">231</span>
+<span id="232">232</span>
+<span id="233">233</span>
+<span id="234">234</span>
+<span id="235">235</span>
+<span id="236">236</span>
+<span id="237">237</span>
+<span id="238">238</span>
+<span id="239">239</span>
+<span id="240">240</span>
+<span id="241">241</span>
+<span id="242">242</span>
+<span id="243">243</span>
+<span id="244">244</span>
+<span id="245">245</span>
+<span id="246">246</span>
+<span id="247">247</span>
+<span id="248">248</span>
+<span id="249">249</span>
+<span id="250">250</span>
+<span id="251">251</span>
+<span id="252">252</span>
+<span id="253">253</span>
+<span id="254">254</span>
+<span id="255">255</span>
+<span id="256">256</span>
+<span id="257">257</span>
+<span id="258">258</span>
+<span id="259">259</span>
+<span id="260">260</span>
+<span id="261">261</span>
+<span id="262">262</span>
+<span id="263">263</span>
+<span id="264">264</span>
+<span id="265">265</span>
+<span id="266">266</span>
+<span id="267">267</span>
+<span id="268">268</span>
+<span id="269">269</span>
+<span id="270">270</span>
+<span id="271">271</span>
+<span id="272">272</span>
+<span id="273">273</span>
+<span id="274">274</span>
+<span id="275">275</span>
+<span id="276">276</span>
+<span id="277">277</span>
+<span id="278">278</span>
+<span id="279">279</span>
+<span id="280">280</span>
+<span id="281">281</span>
+<span id="282">282</span>
+<span id="283">283</span>
+<span id="284">284</span>
+<span id="285">285</span>
+<span id="286">286</span>
+<span id="287">287</span>
+<span id="288">288</span>
+<span id="289">289</span>
+<span id="290">290</span>
+<span id="291">291</span>
+<span id="292">292</span>
+<span id="293">293</span>
+<span id="294">294</span>
+<span id="295">295</span>
+<span id="296">296</span>
+<span id="297">297</span>
+<span id="298">298</span>
 </pre><pre class='rust '>
+<span class='comment'>// Copyright 2015-2016 rust-stm Developers</span>
+<span class='comment'>//</span>
+<span class='comment'>// Licensed under the Apache License, Version 2.0 &lt;LICENSE-APACHE or</span>
+<span class='comment'>// http://www.apache.org/licenses/LICENSE-2.0&gt; or the MIT license</span>
+<span class='comment'>// &lt;LICENSE-MIT or http://opensource.org/licenses/MIT&gt;, at your</span>
+<span class='comment'>// option. This file may not be copied, modified, or distributed</span>
+<span class='comment'>// except according to those terms.</span>
+
 <span class='doccomment'>//! This library implements [software transactional memory]</span>
 <span class='doccomment'>//! (https://en.wikipedia.org/wiki/Software_transactional_memory),</span>
 <span class='doccomment'>//! often abbreviated with STM.</span>
@@ -269,7 +364,7 @@
 <span class='doccomment'>//! other threads may interfer in between of these actions.</span>
 <span class='doccomment'>//! Applying another lock may lead to common sources of errors</span>
 <span class='doccomment'>//! like deadlocks and forgotten locks.</span>
-<span class='doccomment'>//! </span>
+<span class='doccomment'>//!</span>
 <span class='doccomment'>//! Unlike locks Software transactional memory is composable.</span>
 <span class='doccomment'>//! It is typically implemented by writing all read and write</span>
 <span class='doccomment'>//! operations in a log. When the action has finished, the reads</span>
@@ -278,193 +373,271 @@
 <span class='doccomment'>//! or the result is discarded and the computation run again.</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! # Usage</span>
-<span class='doccomment'>//! </span>
-<span class='doccomment'>//! STM operations are safed inside the type `STM&lt;T&gt;` where T</span>
-<span class='doccomment'>//! is the return type of the inner operation. They are created with `stm!`:</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! You should only use the functions that are safe to use.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Don&#39;t have side effects except for the atomic variables, from this library.</span>
+<span class='doccomment'>//! Especially a mutex or other blocking mechanisms inside of software transactional</span>
+<span class='doccomment'>//! memory is dangerous.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! You can run the top-level atomic operation by calling `atomically`.</span>
+<span class='doccomment'>//!</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! # #[macro_use] extern crate stm;</span>
-<span class='doccomment'>//! # fn main() {</span>
-<span class='doccomment'>//! let transaction = stm!({</span>
+<span class='doccomment'>//! use stm::atomically;</span>
+<span class='doccomment'>//! atomically(|trans| {</span>
 <span class='doccomment'>//!     // some action</span>
-<span class='doccomment'>//!     // return value (or empty for unit)</span>
+<span class='doccomment'>//!     // return value as `Result`, for example</span>
+<span class='doccomment'>//!     Ok(42)</span>
 <span class='doccomment'>//! });</span>
-<span class='doccomment'>//! # }</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! and can then be run by calling.</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! # #[macro_use] extern crate stm;</span>
-<span class='doccomment'>//! # fn main() {</span>
-<span class='doccomment'>//! # let transaction = stm!({</span>
-<span class='doccomment'>//! # });</span>
-<span class='doccomment'>//! transaction.atomically();</span>
-<span class='doccomment'>//! # }</span>
-<span class='doccomment'>//!</span>
 <span class='doccomment'>//! ```</span>
 <span class='doccomment'>//!</span>
-<span class='doccomment'>//! For running an STM-Block inside of another</span>
-<span class='doccomment'>//! use the macro `stm_call!`:</span>
+<span class='doccomment'>//! Calls to `atomically` should not be nested.</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! For running an atomic operation inside of another, pass a mutable reference to a `Transaction`</span>
+<span class='doccomment'>//! and call `try!` on the result. You should not handle the error yourself.</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! ```</span>
-<span class='doccomment'>//! # #[macro_use] extern crate stm;</span>
-<span class='doccomment'>//! # fn main() {</span>
-<span class='doccomment'>//! use stm::Var;</span>
-<span class='doccomment'>//! let var = Var::new(0);</span>
-<span class='doccomment'>//! let var2 = var.clone(); // clone so that it can be send to a closure</span>
-<span class='doccomment'>//! let modify = stm!({</span>
-<span class='doccomment'>//!     var2.write(42);</span>
+<span class='doccomment'>//! use stm::{atomically, TVar};</span>
+<span class='doccomment'>//! let var = TVar::new(0);</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! let x = atomically(|trans| {</span>
+<span class='doccomment'>//!     try!(var.write(trans, 42));</span>
+<span class='doccomment'>//!     var.read(trans) // return the value saved in var</span>
 <span class='doccomment'>//! });</span>
-<span class='doccomment'>//!</span>
-<span class='doccomment'>//! let x = stm!({</span>
-<span class='doccomment'>//!     stm_call!(modify);</span>
-<span class='doccomment'>//!     var.read()  // return the value saved in var</span>
-<span class='doccomment'>//! }).atomically();</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! println!(&quot;var = {}&quot;, x);</span>
-<span class='doccomment'>//! # }</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! ```</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! # STM safety</span>
 <span class='doccomment'>//!</span>
-<span class='doccomment'>//! Software transactional memory is completely safe in the terms</span>
+<span class='doccomment'>//! Software transactional memory is completely safe in the terms,</span>
 <span class='doccomment'>//! that rust considers safe. Still there are multiple rules that</span>
 <span class='doccomment'>//! you should obey when dealing with software transactional memory:</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! * Don&#39;t run code with side effects, especially no IO-code,</span>
 <span class='doccomment'>//! because stm is designed to be run multiple times. Return a</span>
 <span class='doccomment'>//! closure if you have to.</span>
-<span class='doccomment'>//! * Don&#39;t run an STM-Block by calling `STM::atomically` inside of</span>
-<span class='doccomment'>//! another because your thread will</span>
+<span class='doccomment'>//! * Don&#39;t handle the error types yourself, unless you absolutely know, what you</span>
+<span class='doccomment'>//! are doing. Use `Transaction::or`, to try alternatives.</span>
+<span class='doccomment'>//! * Don&#39;t run `atomically` inside of another, because your thread will</span>
 <span class='doccomment'>//! immediately panic. When you use STM in the inner of a function then</span>
-<span class='doccomment'>//! return a STM-Object instead so that callers can safely compose it into</span>
+<span class='doccomment'>//! express that in the public interface, by taking a `&amp;mut Transaction` and </span>
+<span class='doccomment'>//! returning a `StmResult&lt;T&gt;`. Callers can safely compose it into</span>
 <span class='doccomment'>//! larger blocks.</span>
-<span class='doccomment'>//! * Don&#39;t mix locks and STM. Your code will easily deadlock and slow</span>
+<span class='doccomment'>//! * Don&#39;t mix locks and transactions. Your code will easily deadlock and slow</span>
 <span class='doccomment'>//! down on unpredictably.</span>
-<span class='doccomment'>//! * When you put an `Arc` into a `Var` don&#39;t use inner mutability</span>
-<span class='doccomment'>//! to modify it since the inner still points to the original value.</span>
-<span class='doccomment'>//! * Don&#39;t call `Var::read` or `Var::write` from outside of a STM block.</span>
-<span class='doccomment'>//! Instead start a STM or use `Var::read_atomic` for it.</span>
-<span class='doccomment'>//! </span>
+<span class='doccomment'>//! * When you put an `Arc` into a `Var`, don&#39;t use inner mutability</span>
+<span class='doccomment'>//! to modify it because, the inner still points to the original value.</span>
 <span class='doccomment'>//!</span>
 <span class='doccomment'>//! # Speed</span>
-<span class='doccomment'>//! Generally keep your atomic blocks as small as possible bacause</span>
-<span class='doccomment'>//! the more time you spend the more likely it is to collide with</span>
-<span class='doccomment'>//! other threads. For STM reading vars is quite slow because it</span>
-<span class='doccomment'>//! need to look them up in the log every time they are written to</span>
+<span class='doccomment'>//!</span>
+<span class='doccomment'>//! Generally keep your atomic blocks as small as possible, because</span>
+<span class='doccomment'>//! the more time you spend, the more likely it is, to collide with</span>
+<span class='doccomment'>//! other threads. For STM, reading vars is quite slow, because it</span>
+<span class='doccomment'>//! needs to look them up in the log every time, they are written to,</span>
 <span class='doccomment'>//! and every used var increases the chance of collisions. You should</span>
 <span class='doccomment'>//! keep the amount of accessed variables as low as needed.</span>
 
-<span class='comment'>// need to be replaced by a proper semaphore implementation</span>
-<span class='comment'>// or other alternative so that is compiles on stable</span>
-<span class='attribute'>#<span class='op'>!</span>[<span class='ident'>feature</span>(<span class='ident'>semaphore</span>)]</span>
-
-<span class='attribute'>#[<span class='ident'>macro_use</span>]</span>
-<span class='kw'>mod</span> <span class='ident'>macros</span>;
-
-<span class='kw'>mod</span> <span class='ident'>stm</span>;
-<span class='kw'>mod</span> <span class='ident'>log</span>;
+<span class='kw'>mod</span> <span class='ident'>transaction</span>;
 <span class='kw'>mod</span> <span class='ident'>var</span>;
+<span class='kw'>mod</span> <span class='ident'>result</span>;
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>stm</span>::{<span class='ident'>STM</span>, <span class='ident'>StmResult</span>, <span class='ident'>retry</span>};
+<span class='attribute'>#[<span class='ident'>cfg</span>(<span class='ident'>test</span>)]</span>
+<span class='kw'>mod</span> <span class='ident'>test</span>;
 
-<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>var</span>::<span class='ident'>Var</span>;
+<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>var</span>::<span class='ident'>TVar</span>;
+<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>transaction</span>::<span class='ident'>Transaction</span>;
+<span class='kw'>pub</span> <span class='kw'>use</span> <span class='ident'>result</span>::<span class='op'>*</span>;
 
 
-<span class='attribute'>#[<span class='ident'>test</span>]</span>
-<span class='kw'>fn</span> <span class='ident'>test_stm_macro</span>() {
-    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>Var</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
-
-    <span class='kw'>let</span> <span class='ident'>var2</span> <span class='op'>=</span> <span class='ident'>var</span>.<span class='ident'>clone</span>();
-
-    <span class='kw'>let</span> <span class='ident'>stm</span> <span class='op'>=</span> <span class='macro'>stm</span><span class='macro'>!</span>({
-        <span class='ident'>var2</span>.<span class='ident'>write</span>(<span class='number'>42</span>);
-        <span class='number'>0</span>
-    });
-
-    <span class='ident'>stm</span>.<span class='ident'>atomically</span>();
+<span class='doccomment'>/// call `retry`, to abort an operation. It takes another path of an</span>
+<span class='doccomment'>/// `Transaction::or` or blocks until any variable changes.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// # Examples</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// ```no_run</span>
+<span class='doccomment'>/// use stm::*;</span>
+<span class='doccomment'>/// let infinite_retry: i32 = atomically(|_| retry());</span>
+<span class='doccomment'>/// ```</span>
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>retry</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>() <span class='op'>-&gt;</span> <span class='ident'>StmResult</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> {
+    <span class='prelude-val'>Err</span>(<span class='ident'>StmError</span>::<span class='ident'>Retry</span>)
 }
 
+<span class='doccomment'>/// Run a function atomically by using Software Transactional Memory.</span>
+<span class='doccomment'>/// It calls to `Transaction::with` internally, but is more explicit.</span>
+<span class='kw'>pub</span> <span class='kw'>fn</span> <span class='ident'>atomically</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>F</span><span class='op'>&gt;</span>(<span class='ident'>f</span>: <span class='ident'>F</span>) <span class='op'>-&gt;</span> <span class='ident'>T</span>
+<span class='kw'>where</span> <span class='ident'>F</span>: <span class='ident'>Fn</span>(<span class='kw-2'>&amp;</span><span class='kw-2'>mut</span> <span class='ident'>Transaction</span>) <span class='op'>-&gt;</span> <span class='ident'>StmResult</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span>
+{
+    <span class='ident'>Transaction</span>::<span class='ident'>with</span>(<span class='ident'>f</span>)
+}
 
+<span class='attribute'>#[<span class='ident'>test</span>]</span>
+<span class='kw'>fn</span> <span class='ident'>test_infinite_retry</span>() {
+    <span class='kw'>let</span> <span class='ident'>terminated</span> <span class='op'>=</span> <span class='ident'>test</span>::<span class='ident'>terminates</span>(<span class='number'>50</span>, <span class='op'>||</span> { 
+        <span class='kw'>let</span> <span class='ident'>_infinite_retry</span>: <span class='ident'>i32</span> <span class='op'>=</span> <span class='ident'>atomically</span>(<span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>retry</span>());
+    });
+    <span class='macro'>assert</span><span class='macro'>!</span>(<span class='op'>!</span><span class='ident'>terminated</span>);
+}
 
 <span class='attribute'>#[<span class='ident'>test</span>]</span>
 <span class='kw'>fn</span> <span class='ident'>test_stm_nested</span>() {
-    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>Var</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
 
-    <span class='kw'>let</span> <span class='ident'>var_ref</span> <span class='op'>=</span> <span class='ident'>var</span>.<span class='ident'>clone</span>();
-
-    <span class='kw'>let</span> <span class='ident'>inner_stm</span> <span class='op'>=</span> <span class='macro'>stm</span><span class='macro'>!</span>({
-        <span class='ident'>var_ref</span>.<span class='ident'>write</span>(<span class='number'>42</span>);
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+        <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>var</span>.<span class='ident'>write</span>(<span class='ident'>trans</span>, <span class='number'>42</span>));
+        <span class='ident'>var</span>.<span class='ident'>read</span>(<span class='ident'>trans</span>)
     });
 
-
-    <span class='kw'>let</span> <span class='ident'>stm</span> <span class='op'>=</span> <span class='macro'>stm</span><span class='macro'>!</span>({
-        <span class='macro'>stm_call</span><span class='macro'>!</span>(<span class='ident'>inner_stm</span>);
-        <span class='ident'>var</span>.<span class='ident'>read</span>()
-    });
-
-    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>stm</span>.<span class='ident'>atomically</span>();
     <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='number'>42</span>, <span class='ident'>x</span>);
 }
 
-
+<span class='doccomment'>/// Run multiple threads.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// Thread 1: Read a var, block until it is not 0 and then</span>
+<span class='doccomment'>/// return that value.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// Thread 2: Wait a bit. Then write a value.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// Check if Thread 1 is woken up correctly and then check for </span>
+<span class='doccomment'>/// correctness.</span>
 <span class='attribute'>#[<span class='ident'>test</span>]</span>
 <span class='kw'>fn</span> <span class='ident'>test_threaded</span>() {
     <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
-    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>sync</span>::<span class='ident'>mpsc</span>::<span class='ident'>channel</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>time</span>::<span class='ident'>Duration</span>;
 
-    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>Var</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
-
-    <span class='kw'>let</span> (<span class='ident'>tx</span>, <span class='ident'>rx</span>) <span class='op'>=</span> <span class='ident'>channel</span>();
-
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
     <span class='kw'>let</span> <span class='ident'>var_ref</span> <span class='op'>=</span> <span class='ident'>var</span>.<span class='ident'>clone</span>();
-    <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
-        <span class='kw'>let</span> <span class='ident'>stm</span> <span class='op'>=</span> <span class='macro'>stm</span><span class='macro'>!</span>({
-            <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>var_ref</span>.<span class='ident'>read</span>();
-            <span class='kw'>if</span> <span class='ident'>x</span><span class='op'>==</span><span class='number'>0</span> {
-                <span class='macro'>stm_call</span><span class='macro'>!</span>(<span class='ident'>retry</span>());
-            }
-            <span class='ident'>x</span>
-        });
 
-        <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>tx</span>.<span class='ident'>send</span>(<span class='ident'>stm</span>.<span class='ident'>atomically</span>());
-    });
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>test</span>::<span class='ident'>async</span>(<span class='number'>200</span>,
+        <span class='kw'>move</span> <span class='op'>||</span> {
+            <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+                <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>var_ref</span>.<span class='ident'>read</span>(<span class='ident'>trans</span>));
+                <span class='kw'>if</span> <span class='ident'>x</span> <span class='op'>==</span> <span class='number'>0</span> {
+                    <span class='ident'>retry</span>()
+                } <span class='kw'>else</span> {
+                    <span class='prelude-val'>Ok</span>(<span class='ident'>x</span>)
+                }
+            })
+        },
+        <span class='kw'>move</span> <span class='op'>||</span> {
+            <span class='ident'>thread</span>::<span class='ident'>sleep</span>(<span class='ident'>Duration</span>::<span class='ident'>from_millis</span>(<span class='number'>100</span>));
 
-    <span class='ident'>thread</span>::<span class='ident'>sleep_ms</span>(<span class='number'>100</span>);
-
-    <span class='macro'>stm</span><span class='macro'>!</span>({
-        <span class='ident'>var</span>.<span class='ident'>write</span>(<span class='number'>42</span>);
-    }).<span class='ident'>atomically</span>();
-
-    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>rx</span>.<span class='ident'>recv</span>().<span class='ident'>unwrap</span>();
+            <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> <span class='ident'>var</span>.<span class='ident'>write</span>(<span class='ident'>trans</span>, <span class='number'>42</span>));
+        }
+    ).<span class='ident'>unwrap</span>();
 
     <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='number'>42</span>, <span class='ident'>x</span>);
 }
 
-<span class='comment'>/*
-#[bench]
-fn bench_counter_stm(bench: &amp;mut Bencher) {
-    let var = Var::new(0);
+<span class='doccomment'>/// test if a STM calculation is rerun when a Var changes while executing</span>
+<span class='attribute'>#[<span class='ident'>test</span>]</span>
+<span class='kw'>fn</span> <span class='ident'>test_read_write_interfere</span>() {
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>thread</span>;
+    <span class='kw'>use</span> <span class='ident'>std</span>::<span class='ident'>time</span>::<span class='ident'>Duration</span>;
 
-    let stm = stm!({
-        let x = var.read();
-        var.write(x+1);
+    <span class='comment'>// create var</span>
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>0</span>);
+    <span class='kw'>let</span> <span class='ident'>var_ref</span> <span class='op'>=</span> <span class='ident'>var</span>.<span class='ident'>clone</span>();
+
+    <span class='comment'>// spawn a thread</span>
+    <span class='kw'>let</span> <span class='ident'>t</span> <span class='op'>=</span> <span class='ident'>thread</span>::<span class='ident'>spawn</span>(<span class='kw'>move</span> <span class='op'>||</span> {
+        <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>log</span><span class='op'>|</span> {
+            <span class='comment'>// read the var</span>
+            <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>var_ref</span>.<span class='ident'>read</span>(<span class='ident'>log</span>));
+            <span class='comment'>// ensure that x var_ref changes in between</span>
+            <span class='ident'>thread</span>::<span class='ident'>sleep</span>(<span class='ident'>Duration</span>::<span class='ident'>from_millis</span>(<span class='number'>500</span>));
+
+            <span class='comment'>// write back modified data this should only</span>
+            <span class='comment'>// happen when the value has not changed</span>
+            <span class='ident'>var_ref</span>.<span class='ident'>write</span>(<span class='ident'>log</span>, <span class='ident'>x</span> <span class='op'>+</span> <span class='number'>10</span>)
+        });
     });
 
-    b.iter(|| stm.atomically());
+    <span class='comment'>// ensure that the thread has started and already read the var</span>
+    <span class='ident'>thread</span>::<span class='ident'>sleep</span>(<span class='ident'>Duration</span>::<span class='ident'>from_millis</span>(<span class='number'>100</span>));
+
+    <span class='comment'>// now change it</span>
+    <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> <span class='ident'>var</span>.<span class='ident'>write</span>(<span class='ident'>trans</span>, <span class='number'>32</span>));
+
+    <span class='comment'>// finish and compare</span>
+    <span class='kw'>let</span> _ <span class='op'>=</span> <span class='ident'>t</span>.<span class='ident'>join</span>();
+    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='number'>42</span>, <span class='ident'>var</span>.<span class='ident'>read_atomic</span>());
 }
 
-#[bench]
-fn bench_counter_lock(bench: &amp;mut Bencher) {
-    let var = Mutex::new(0); 
+<span class='attribute'>#[<span class='ident'>test</span>]</span>
+<span class='kw'>fn</span> <span class='ident'>test_or_simple</span>() {
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>42</span>);
 
-    b.iter(|| {
-        let guard = var.lock().unwrap();
-        *guard += 1;
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+        <span class='ident'>trans</span>.<span class='ident'>or</span>(<span class='op'>|</span>_<span class='op'>|</span> {
+            <span class='ident'>retry</span>()
+        },
+        <span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+            <span class='ident'>var</span>.<span class='ident'>read</span>(<span class='ident'>trans</span>)
+        })
     });
+
+    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>x</span>, <span class='number'>42</span>);
 }
-*/</span>
+
+<span class='doccomment'>/// A variable should not be written,</span>
+<span class='doccomment'>/// when another branch was taken</span>
+<span class='attribute'>#[<span class='ident'>test</span>]</span>
+<span class='kw'>fn</span> <span class='ident'>test_or_nocommit</span>() {
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>42</span>);
+
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+        <span class='ident'>trans</span>.<span class='ident'>or</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+            <span class='macro'>try</span><span class='macro'>!</span>(<span class='ident'>var</span>.<span class='ident'>write</span>(<span class='ident'>trans</span>, <span class='number'>23</span>));
+            <span class='ident'>retry</span>()
+        },
+        <span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+            <span class='ident'>var</span>.<span class='ident'>read</span>(<span class='ident'>trans</span>)
+        })
+    });
+
+    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>x</span>, <span class='number'>42</span>);
+}
+
+<span class='attribute'>#[<span class='ident'>test</span>]</span>
+<span class='kw'>fn</span> <span class='ident'>test_or_nested_first</span>() {
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>42</span>);
+
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+        <span class='ident'>trans</span>.<span class='ident'>or</span>(
+            <span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> {
+                <span class='ident'>t</span>.<span class='ident'>or</span>(
+                    <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>retry</span>(),
+                    <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>retry</span>()
+                )
+            },
+            <span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> <span class='ident'>var</span>.<span class='ident'>read</span>(<span class='ident'>trans</span>)
+        )
+    });
+
+    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>x</span>, <span class='number'>42</span>);
+}
+
+<span class='attribute'>#[<span class='ident'>test</span>]</span>
+<span class='kw'>fn</span> <span class='ident'>test_or_nested_second</span>() {
+    <span class='kw'>let</span> <span class='ident'>var</span> <span class='op'>=</span> <span class='ident'>TVar</span>::<span class='ident'>new</span>(<span class='number'>42</span>);
+
+    <span class='kw'>let</span> <span class='ident'>x</span> <span class='op'>=</span> <span class='ident'>atomically</span>(<span class='op'>|</span><span class='ident'>trans</span><span class='op'>|</span> {
+        <span class='ident'>trans</span>.<span class='ident'>or</span>(
+            <span class='op'>|</span>_<span class='op'>|</span> {
+                <span class='ident'>retry</span>()
+            },
+            <span class='op'>|</span><span class='ident'>t</span><span class='op'>|</span> <span class='ident'>t</span>.<span class='ident'>or</span>(
+                <span class='op'>|</span><span class='ident'>t2</span><span class='op'>|</span> <span class='ident'>var</span>.<span class='ident'>read</span>(<span class='ident'>t2</span>),
+                <span class='op'>|</span>_<span class='op'>|</span> <span class='ident'>retry</span>()
+            )
+        )
+    });
+
+    <span class='macro'>assert_eq</span><span class='macro'>!</span>(<span class='ident'>x</span>, <span class='number'>42</span>);
+}
 </pre>
 </section>
     <section id='search' class="content hidden"></section>
@@ -525,6 +698,6 @@ fn bench_counter_lock(bench: &amp;mut Bencher) {
     <script src="../../jquery.js"></script>
     <script src="../../main.js"></script>
     
-    <script async src="../../search-index.js"></script>
+    <script defer src="../../search-index.js"></script>
 </body>
 </html>

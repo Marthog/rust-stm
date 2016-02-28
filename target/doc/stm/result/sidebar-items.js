@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["StmError",""]],"type":[["StmResult","StmResult is a result of a single step of a STM calculation."]]});

@@ -4,11 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="generator" content="rustdoc">
-    <meta name="description" content="Source to the Rust file `macros.rs`.">
+    <meta name="description" content="Source to the Rust file `src/result.rs`.">
     <meta name="keywords" content="rust, rustlang, rust-lang">
 
-    <title>macros.rs.html -- source</title>
+    <title>result.rs.html -- source</title>
 
+    <link rel="stylesheet" type="text/css" href="../../rustdoc.css">
     <link rel="stylesheet" type="text/css" href="../../main.css">
 
     
@@ -62,45 +63,29 @@
 <span id="20">20</span>
 <span id="21">21</span>
 <span id="22">22</span>
-<span id="23">23</span>
-<span id="24">24</span>
-<span id="25">25</span>
-<span id="26">26</span>
-<span id="27">27</span>
-<span id="28">28</span>
-<span id="29">29</span>
-<span id="30">30</span>
 </pre><pre class='rust '>
 
-<span class='doccomment'>/// call a STM function from inside of a STM block</span>
-<span class='doccomment'>/// </span>
-<span class='doccomment'>/// if we had control over stack unwinding we could use that</span>
-<span class='attribute'>#[<span class='ident'>macro_export</span>]</span>
-<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>stm_call</span> {
-    ( <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>:<span class='ident'>expr</span> )     <span class='op'>=&gt;</span> ({
-        <span class='kw'>use</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>StmResult</span>::<span class='op'>*</span>;
+<span class='attribute'>#[<span class='ident'>derive</span>(<span class='ident'>Eq</span>, <span class='ident'>PartialEq</span>, <span class='ident'>Clone</span>, <span class='ident'>Copy</span>, <span class='ident'>Debug</span>)]</span>
+<span class='kw'>pub</span> <span class='kw'>enum</span> <span class='ident'>StmError</span> {
+    <span class='doccomment'>/// The call failed, because a variable, the computation</span>
+    <span class='doccomment'>/// depends on, has changed.</span>
+    <span class='ident'>Failure</span>,
 
-        <span class='kw'>let</span> <span class='ident'>ret</span> <span class='op'>=</span> <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>.<span class='ident'>intern_run</span>();
-        <span class='kw'>match</span> <span class='ident'>ret</span> {
-            <span class='ident'>Success</span>(<span class='ident'>s</span>)  <span class='op'>=&gt;</span> <span class='ident'>s</span>,
-            <span class='ident'>Retry</span>       <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Retry</span>,
-            <span class='ident'>Failure</span>     <span class='op'>=&gt;</span> <span class='kw'>return</span> <span class='ident'>Failure</span>
-        }
-    })
+    <span class='doccomment'>/// `retry` was called.</span>
+    <span class='doccomment'>///</span>
+    <span class='doccomment'>/// It may block until at least one read variable has changed.</span>
+    <span class='ident'>Retry</span>,
 }
 
-
-<span class='doccomment'>/// declare a block that uses STM</span>
-<span class='attribute'>#[<span class='ident'>macro_export</span>]</span>
-<span class='macro'>macro_rules</span><span class='macro'>!</span> <span class='ident'>stm</span> {
-    ( <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>:<span class='ident'>expr</span> )    <span class='op'>=&gt;</span> {{
-        <span class='kw'>let</span> <span class='ident'>func</span> <span class='op'>=</span> <span class='kw'>move</span> <span class='op'>||</span> {
-            <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>StmResult</span>::<span class='ident'>Success</span>(<span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>e</span>)
-        };
-        <span class='macro-nonterminal'>$</span><span class='macro-nonterminal'>crate</span>::<span class='ident'>STM</span>::<span class='ident'>new</span>(<span class='ident'>func</span>)
-    }}
-}
-
+<span class='doccomment'>/// StmResult is a result of a single step of a STM calculation.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// It informs of success or the type of failure. Normally you should not use</span>
+<span class='doccomment'>/// it directly. Especially recovering from an error, e.g. by using `action1.or(action2)`</span>
+<span class='doccomment'>/// can break the semantics of stm, and cause delayed wakeups or deadlocks.</span>
+<span class='doccomment'>///</span>
+<span class='doccomment'>/// For the later case, there is the `transaction.or(action1, action2)`, that</span>
+<span class='doccomment'>/// is safe to use.</span>
+<span class='kw'>pub</span> <span class='kw'>type</span> <span class='ident'>StmResult</span><span class='op'>&lt;</span><span class='ident'>T</span><span class='op'>&gt;</span> <span class='op'>=</span> <span class='prelude-ty'>Result</span><span class='op'>&lt;</span><span class='ident'>T</span>, <span class='ident'>StmError</span><span class='op'>&gt;</span>;
 </pre>
 </section>
     <section id='search' class="content hidden"></section>
@@ -161,6 +146,6 @@
     <script src="../../jquery.js"></script>
     <script src="../../main.js"></script>
     
-    <script async src="../../search-index.js"></script>
+    <script defer src="../../search-index.js"></script>
 </body>
 </html>
