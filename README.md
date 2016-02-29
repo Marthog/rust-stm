@@ -26,7 +26,7 @@ either the writes are committed in a single atomic operation
 or the result is discarded and the computation run again.
 
 
- # Usage
+# Usage
 
  You should only use the functions that are safe to use.
 
