@@ -14,6 +14,7 @@ use std::collections::btree_map::Entry::*;
 use std::mem;
 use std::sync::{Arc};
 use std::any::Any;
+use std::cell::Cell;
 
 use self::log_var::LogVar;
 use self::log_var::LogVar::*;
@@ -21,6 +22,31 @@ use self::control_block::ControlBlock;
 use super::var::{TVar, VarControlBlock};
 use super::result::*;
 use super::result::StmError::*;
+
+thread_local!(static TRANSACTION_RUNNING: Cell<bool> = Cell::new(false));
+
+/// TransactionGuard checks against nested STM calls.
+///
+/// Use guard, so that it correctly marks the Transaction as finished.
+struct TransactionGuard;
+
+impl TransactionGuard {
+    pub fn new() -> TransactionGuard {
+        TRANSACTION_RUNNING.with(|t| {
+            assert!(!t.get(), "STM: Nested Transaction");
+            t.set(true);
+        });
+        TransactionGuard
+    }
+}
+
+impl Drop for TransactionGuard {
+    fn drop(&mut self) {
+        TRANSACTION_RUNNING.with(|t| {
+            t.set(false);
+        });
+    }
+}
 
 
 /// Transaction tracks all the read and written variables.
@@ -50,6 +76,8 @@ impl Transaction {
     pub fn with<T, F>(f: F) -> T 
     where F: Fn(&mut Transaction) -> StmResult<T>,
     {
+        let _guard = TransactionGuard::new();
+
         // create a log guard for initializing and cleaning up
         // the log
         let mut transaction = Transaction::new();
@@ -408,3 +436,12 @@ fn test_transaction_copy() {
     assert_eq!(write.read_atomic(), 42);
 }
 
+/// Test if nested transactions are correctly detected.
+#[test]
+#[should_panic]
+fn test_transaction_nested_fail() {
+    Transaction::with(|_| {
+        Transaction::with(|_| Ok(42));
+        Ok(1)
+    });
+}
