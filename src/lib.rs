@@ -133,7 +133,7 @@ where F: Fn(&mut Transaction) -> StmResult<T>
 
 #[test]
 fn test_infinite_retry() {
-    let terminated = test::terminates(50, || { 
+    let terminated = test::terminates(300, || { 
         let _infinite_retry: i32 = atomically(|_| retry());
     });
     assert!(!terminated);
@@ -168,7 +168,7 @@ fn test_threaded() {
     let var = TVar::new(0);
     let var_ref = var.clone();
 
-    let x = test::async(200,
+    let x = test::async(800,
         move || {
             atomically(|trans| {
                 let x = try!(var_ref.read(trans));

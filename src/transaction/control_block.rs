@@ -78,7 +78,7 @@ impl ControlBlock {
 fn test_blocked() {
     let ctrl = ControlBlock::new();
     // waiting should immediately finish
-    assert!(!terminates(10, move || ctrl.wait()));
+    assert!(!terminates(100, move || ctrl.wait()));
 }
 
 /// A ControlBlock does immediately return,
@@ -92,7 +92,7 @@ fn test_wait_after_change() {
     // set to changed
     ctrl.set_changed();
     // waiting should immediately finish
-    assert!(terminates(10, move || ctrl.wait()));
+    assert!(terminates(50, move || ctrl.wait()));
 }
 
 /// Test calling `set_changed` multiple times.
@@ -106,7 +106,7 @@ fn test_wait_after_multiple_changes() {
     ctrl.set_changed();
 
     // waiting should immediately finish
-    assert!(terminates(10, move || ctrl.wait()));
+    assert!(terminates(50, move || ctrl.wait()));
 }
 
 
@@ -117,7 +117,7 @@ fn test_wait_threaded_wakeup() {
 
     let ctrl = Arc::new(ControlBlock::new());
     let ctrl2 = ctrl.clone();
-    let terminated = terminates_async(100,
+    let terminated = terminates_async(500,
                                 move || ctrl.wait(),
                                 move || ctrl2.set_changed());
 

@@ -35,8 +35,19 @@ where F: Send + FnOnce() -> T + 'static,
     });
     
     f2();
+    
+    if let a@Some(_) = rx.try_recv().ok() {
+        return a;
+    }
 
-    thread::sleep(Duration::from_millis(duration_ms));
+    for _ in 0..duration_ms/50 {
+        thread::sleep(Duration::from_millis(50));
+        if let a@Some(_) = rx.try_recv().ok() {
+            return a;
+        }
+    }
+
+    thread::sleep(Duration::from_millis(duration_ms % 50));
 
     rx.try_recv().ok()
 }
