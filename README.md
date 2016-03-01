@@ -37,7 +37,7 @@ or the result is discarded and the computation run again.
  You can run the top-level atomic operation by calling `atomically`.
 
 
- ```
+ ```rust
  use stm::atomically;
  atomically(|trans| {
      // some action
@@ -51,7 +51,7 @@ or the result is discarded and the computation run again.
  For running an atomic operation inside of another, pass a mutable reference to a `Transaction`
  and call `try!` on the result. You should not handle the error yourself.
 
- ```
+ ```rust
  use stm::{atomically, TVar};
  let var = TVar::new(0);
 
