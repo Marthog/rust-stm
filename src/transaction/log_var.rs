@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 pub type ArcAny = Arc<Any + Send + Sync>;
 
-/// LogVar is used by `Log` to track which `Var` was either read or written
+/// `LogVar` is used by `Log` to track which `Var` was either read or written
 #[derive(Clone)]
 pub enum LogVar {
     /// Var has been read.

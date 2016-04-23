@@ -12,7 +12,7 @@ pub mod log_var;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry::*;
 use std::mem;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::any::Any;
 use std::cell::Cell;
 
@@ -25,7 +25,7 @@ use super::result::StmError::*;
 
 thread_local!(static TRANSACTION_RUNNING: Cell<bool> = Cell::new(false));
 
-/// TransactionGuard checks against nested STM calls.
+/// `TransactionGuard` checks against nested STM calls.
 ///
 /// Use guard, so that it correctly marks the Transaction as finished.
 struct TransactionGuard;
@@ -136,7 +136,7 @@ impl Transaction {
                 let value = var.read_ref_atomic();
 
                 // Store in in an entry.
-                entry.insert(LogVar::Read(value.clone()));
+                entry.insert(Read(value.clone()));
                 value
             }
         };
@@ -158,7 +158,7 @@ impl Transaction {
         // update or create new entry
         match self.vars.entry(ctrl) {
             Occupied(mut entry)     => entry.get_mut().write(boxed),
-            Vacant(entry)       => { entry.insert(LogVar::Write(boxed)); }
+            Vacant(entry)       => { entry.insert(Write(boxed)); }
         }
 
         // For now always succeeds, but that may change later.
@@ -288,9 +288,9 @@ impl Transaction {
         for (var, value) in &vars {
             // lock the variable and read the value
 
-            match value {
+            match *value {
                 // We need to take a write lock.
-                &Write(ref w) | &ReadObsoleteWrite(_,ref w)=> {
+                Write(ref w) | ReadObsoleteWrite(_,ref w)=> {
                     // take write lock
                     let lock = var.value.write().unwrap();
                     // add all data to the vector
@@ -299,7 +299,7 @@ impl Transaction {
                 
                 // We need to check for consistency and
                 // take a write lock.
-                &ReadWrite(ref original,ref w) => {
+                ReadWrite(ref original,ref w) => {
                     // take write lock
                     let lock = var.value.write().unwrap();
 
@@ -311,9 +311,9 @@ impl Transaction {
                 }
                 // Nothing to do. ReadObsolete is only needed for blocking, not
                 // for consistency checks.
-                &ReadObsolete(_) => { }
+                ReadObsolete(_) => { }
                 // Take read lock and check for consistency.
-                &Read(ref original) => {
+                Read(ref original) => {
                     // take a read lock
                     let lock = var.value.read().unwrap();
 
@@ -329,7 +329,7 @@ impl Transaction {
         // Second phase: write back and release
 
         // Release the reads first.
-        mem::drop(read_vec);
+        drop(read_vec);
 
         for (var, value, mut lock) in write_vec {
             // commit value

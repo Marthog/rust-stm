@@ -14,7 +14,7 @@ use std::any::Any;
 use std::marker::PhantomData;
 
 use super::result::*;
-use super::transaction::control_block::{ControlBlock};
+use super::transaction::control_block::ControlBlock;
 use super::Transaction;
 
 /// contains all the useful data for a Var while beeing the same type

@@ -11,7 +11,7 @@ pub enum StmError {
     Retry,
 }
 
-/// StmResult is a result of a single step of a STM calculation.
+/// `StmResult` is a result of a single step of a STM calculation.
 ///
 /// It informs of success or the type of failure. Normally you should not use
 /// it directly. Especially recovering from an error, e.g. by using `action1.or(action2)`

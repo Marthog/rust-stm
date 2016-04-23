@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 use super::super::test::{terminates, terminates_async};
 
-// A control block for a currently running STM instance
+/// A control block for a currently running STM instance
 ///
 /// STM blocks on all read variables if retry was called
 /// this control block is used to let the vars inform the STM instance
@@ -20,7 +20,7 @@ use super::super::test::{terminates, terminates_async};
 /// Be careful when using this, because you can easily create deadlocks.
 pub struct ControlBlock {
     // a simple binary semaphore to unblock
-    /// boolean storing true, if the ControlBlock is still blocked.
+    /// `blocked` is stores true, if the ControlBlock is still blocked.
     /// It could be put in the mutex, but that may
     /// block a thread, that is currently releasing
     /// multiple variables on writing that value.
@@ -33,7 +33,6 @@ pub struct ControlBlock {
     /// waking the thread
     wait_cvar: Condvar,
 }
-
 
 impl ControlBlock {
     /// create a new StmControlBlock
