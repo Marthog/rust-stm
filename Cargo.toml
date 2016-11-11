@@ -35,7 +35,7 @@ doc = true
 
 
 [dependencies]
-clippy = {version = "*", optional = true}
+clippy = {version = "0.0.98", optional = true}
 
 [features]
 default = []
