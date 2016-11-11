@@ -54,18 +54,18 @@ impl Drop for TransactionGuard {
 /// It is used for checking vars, to ensure atomicity.
 pub struct Transaction {
 
-    /// map of all vars that map the `VarControlBlock` of a var to a LogVar
-    /// the `VarControlBlock` is unique because it uses it's address for comparing
+    /// Map of all vars that map the `VarControlBlock` of a var to a `LogVar`.
+    /// The `VarControlBlock` is unique because it uses it's address for comparing.
     ///
-    /// the logs need to be accessed in a order to prevend dead-locks on locking
+    /// The logs need to be accessed in a order to prevend dead-locks on locking.
     vars: BTreeMap<Arc<VarControlBlock>, LogVar>,
 }
 
 impl Transaction {
-    /// create a new Log
+    /// Create a new log.
     ///
-    /// normally you don't need to call this directly because the log
-    /// is created as a thread-local global variable
+    /// Normally you don't need to call this directly.
+    /// Use `atomically` instead.
     fn new() -> Transaction {
         Transaction { vars: BTreeMap::new() }
     }
@@ -116,12 +116,12 @@ impl Transaction {
 
     /// Read a variable and return the value.
     ///
-    /// this is not always consistent with the current value of the var but may
-    /// be an outdated or written but not commited value
+    /// The returned value is not always consistent with the current value of the var,
+    /// but may be an outdated or or not yet commited value.
     ///
-    /// The used code should be capable of handling inconsistens states
+    /// The used code should be capable of handling inconsistent states
     /// without running into infinite loops.
-    /// Just the commit of wrong values is prevented.
+    /// Just the commit of wrong values is prevented by STM.
     pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &TVar<T>) -> StmResult<T> {
         let ctrl = var.control_block().clone();
         // Check if the same var was written before.
@@ -147,8 +147,8 @@ impl Transaction {
 
     /// Write a variable.
     ///
-    /// `write` does not immediately change the value, but atomically
-    /// commits all writes at the end of the computation.
+    /// The write is not immediately visible to other threads,
+    /// but atomically commited at the end of the computation.
     pub fn write<T: Any + Send + Sync + Clone>(&mut self, var: &TVar<T>, value: T) -> StmResult<()> {
         // box the value
         let boxed = Arc::new(value);
@@ -228,7 +228,7 @@ impl Transaction {
     /// Wait for any variable to change,
     /// because the change may lead to a new calculation result.
     fn wait_for_change(&mut self) {
-        // create control block for waiting
+        // Create control block for waiting.
         let ctrl = Arc::new(ControlBlock::new());
 
         let vars = mem::replace(&mut self.vars, BTreeMap::new());
@@ -239,7 +239,7 @@ impl Transaction {
                 b.into_read_value()
                     .map(|b| (a, b))
             })
-            // check if all still contain the same data
+            // Check for consistency.
             .all(|(var, value)| {
                 var.wait(&ctrl);
                 let x = {
@@ -253,7 +253,7 @@ impl Transaction {
 
         // If no var has changed, then block.
         if blocking {
-            // propably wait until one var has changed
+            // Propably wait until one var has changed.
             ctrl.wait();
         }
 
@@ -275,11 +275,11 @@ impl Transaction {
         // Use two phase locking for safely writing data back to the vars.
 
         // First phase: acquire locks.
-        // Check for correctness of the values and perform
+        // Check for consistency of all the reads and perform
         // an early return if something is not consistent.
 
         // Created arrays for storing the locks
-        // vector of locks
+        // vector of locks.
         let mut read_vec = Vec::new();
 
         // vector of tuple (variable, value, lock)
@@ -314,7 +314,7 @@ impl Transaction {
                 ReadObsolete(_) => { }
                 // Take read lock and check for consistency.
                 Read(ref original) => {
-                    // take a read lock
+                    // Take a read lock.
                     let lock = var.value.read().unwrap();
 
                     if !same_address(&lock, original) {
@@ -329,17 +329,18 @@ impl Transaction {
         // Second phase: write back and release
 
         // Release the reads first.
+        // This allows other threads to continue quickly.
         drop(read_vec);
 
         for (var, value, mut lock) in write_vec {
-            // commit value
+            // Commit value.
             *lock = value.clone();
 
             // Unblock all threads waiting for it.
             var.wake_all();
         }
 
-        // commit succeded
+        // Commit succeded.
         true
     }
 }
@@ -354,7 +355,7 @@ fn same_address<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
 }
 
 
-/// Test same_address on a cloned Arc
+/// Test `same_address` on a cloned Arc.
 #[test]
 fn test_same_address_equal() {
     let t1 = Arc::new(42);
@@ -363,7 +364,7 @@ fn test_same_address_equal() {
     assert!(same_address(&t1, &t2));
 }
 
-/// Test same_address on differenc Arcs with same value
+/// Test `same_address` on differenc Arcs with same value.
 #[test]
 fn test_same_address_different() {
     let t1 = Arc::new(42);
@@ -377,7 +378,7 @@ fn test_read() {
     let mut log = Transaction::new();
     let var = TVar::new(vec![1, 2, 3, 4]);
 
-    // the variable can be read
+    // The variable can be read.
     assert_eq!(&*log.read(&var).unwrap(), &[1, 2, 3, 4]);
 }
 
@@ -388,10 +389,10 @@ fn test_write_read() {
 
     log.write(&var, vec![1, 2, 3, 4]).unwrap();
 
-    // consecutive reads get the updated version
+    // Consecutive reads get the updated version.
     assert_eq!(log.read(&var).unwrap(), [1, 2, 3, 4]);
 
-    // the original value is still preserved
+    // The original value is still preserved.
     assert_eq!(var.read_atomic(), [1, 2]);
 }
 
@@ -429,7 +430,7 @@ fn test_transaction_copy() {
     let write = TVar::new(0);
 
     Transaction::with(|trans| {
-        let r = try!(read.read(trans));
+        let r = read.read(trans)?;
         write.write(trans, r)
     });
 

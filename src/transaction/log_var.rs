@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 pub type ArcAny = Arc<Any + Send + Sync>;
 
-/// `LogVar` is used by `Log` to track which `Var` was either read or written
+/// `LogVar` is used by `Log` to track which `Var` was either read or written or both.
+/// Depending on the type, STM has to write, ensure consistency or block on this value.
 #[derive(Clone)]
 pub enum LogVar {
     /// Var has been read.
@@ -14,7 +15,7 @@ pub enum LogVar {
     /// There is no need to check for consistency.
     Write(ArcAny),
 
-    /// ReadWrite(original value, temporary stored value)
+    /// ReadWrite(original value, temporary stored value).
     ///
     /// Var has been read first and then written.
     ///
@@ -28,7 +29,7 @@ pub enum LogVar {
     /// has been unlocked.
     ReadObsolete(ArcAny),
 
-    /// ReadWriteObsolete(original value, temporary stored value)
+    /// ReadWriteObsolete(original value, temporary stored value).
     ///
     /// Var has been read on blocked path and then written to.
     ///
@@ -40,7 +41,7 @@ pub enum LogVar {
 
 
 impl LogVar {
-    /// read a value and potentially upgrade the state
+    /// Read a value and potentially upgrade the state.
     pub fn read(&mut self) -> ArcAny {
         use self::LogVar::*;
 
@@ -58,7 +59,7 @@ impl LogVar {
         }
     }
     
-    /// write a value and potentially upgrade the state.
+    /// Write a value and potentially upgrade the state.
     pub fn write(&mut self, w: ArcAny)
     {
         use self::LogVar::*;
@@ -79,7 +80,7 @@ impl LogVar {
         };
     }
 
-    /// turn this into an obsolete version
+    /// Turn `self` into an obsolete version.
     pub fn obsolete(self) -> Option<LogVar>
     {
         use self::LogVar::*;
@@ -98,7 +99,7 @@ impl LogVar {
     }
 }
 
-/// Test if writes are ignored, when a var is set to obsolete
+/// Test if writes are ignored, when a var is set to obsolete.
 #[test]
 fn test_write_obsolete_ignore() {
     let t = LogVar::Write(Arc::new(42)).obsolete();

@@ -12,30 +12,32 @@ use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(test)]
 use super::super::test::{terminates, terminates_async};
 
-/// A control block for a currently running STM instance
+/// A control block for a currently running STM instance.
 ///
-/// STM blocks on all read variables if retry was called
-/// this control block is used to let the vars inform the STM instance
+/// STM blocks on all read variables if retry was called.
+/// This control block is used to let the vars inform the STM instance.
 ///
-/// Be careful when using this, because you can easily create deadlocks.
+/// Be careful when using this directly, 
+/// because you can easily create deadlocks.
 pub struct ControlBlock {
-    // a simple binary semaphore to unblock
-    /// `blocked` is stores true, if the ControlBlock is still blocked.
+    /// `blocked` is set to true, if the ControlBlock is still blocked.
     /// It could be put in the mutex, but that may
     /// block a thread, that is currently releasing
     /// multiple variables on writing that value.
     blocked: AtomicBool,
 
-    /// a lock needed for the condition variable
+    /// A lock needed for the condition variable.
     lock: Mutex<()>,
 
-    /// condition variable that is used for pausing and
-    /// waking the thread
+    /// Condition variable is used for pausing and
+    /// waking the thread.
     wait_cvar: Condvar,
 }
 
 impl ControlBlock {
-    /// create a new StmControlBlock
+    #[cfg_attr(feature = "dev", allow(new_without_default_derive))]
+
+    /// Create a new StmControlBlock.
     pub fn new() -> ControlBlock {
         ControlBlock {
             blocked: AtomicBool::new(true),
@@ -44,9 +46,9 @@ impl ControlBlock {
         }
     }
 
-    /// inform the control block that a variable has changed
+    /// Inform the control block that a variable has changed.
     ///
-    /// need to be called from outside of STM
+    /// Need to be called from outside of STM.
     pub fn set_changed(&self) {
         // unblock
         self.blocked.store(false, Ordering::SeqCst);
@@ -72,7 +74,7 @@ impl ControlBlock {
 
 // TESTS
 
-/// Test if ControlBlock correctly blocks on `wait`.
+/// Test if `ControlBlock` correctly blocks on `wait`.
 #[test]
 fn test_blocked() {
     let ctrl = ControlBlock::new();
@@ -80,11 +82,11 @@ fn test_blocked() {
     assert!(!terminates(100, move || ctrl.wait()));
 }
 
-/// A ControlBlock does immediately return,
+/// A `ControlBlock` does immediately return,
 /// when it was set to changed before calling waiting.
 ///
-/// This can occur, when a variable changes, while the
-/// transaction is registered on other variables.
+/// This scenario may occur, when a variable changes, while the
+/// transaction has not yet blocked.
 #[test]
 fn test_wait_after_change() {
     let ctrl = ControlBlock::new();

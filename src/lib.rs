@@ -17,18 +17,22 @@
 //! (http://chimera.labs.oreilly.com/books/1230000000929/ch10.html#sec_stm-cost)
 //! is also important for using STM in rust.
 //!
-//! With locks the sequence
-//! of two threadsafe actions is no longer threadsafe because
+//! With locks the sequential composition of two 
+//! two threadsafe actions is no longer threadsafe because
 //! other threads may interfer in between of these actions.
-//! Applying another lock may lead to common sources of errors
-//! like deadlocks and forgotten locks.
+//! Applying a third lock to protect both may lead to common sources of errors
+//! like deadlocks or race conditions.
 //!
 //! Unlike locks Software transactional memory is composable.
 //! It is typically implemented by writing all read and write
-//! operations in a log. When the action has finished, the reads
-//! are checked for consistency and depending on the result
-//! either the writes are committed in a single atomic operation
-//! or the result is discarded and the computation run again.
+//! operations in a log. When the action has finished and
+//! all the used `TVar`s are consistend, the writes are commited as
+//! a single atomic operation.
+//! Otherwise the computation repeats. This may lead to starvation,
+//! but avoids common sources of bugs.
+//!
+//! Panicing within STM does not poison the `TVar`s. STM ensures consistency by
+//! never committing on panic.
 //!
 //! # Usage
 //!
@@ -53,15 +57,16 @@
 //! Calls to `atomically` should not be nested.
 //!
 //! For running an atomic operation inside of another, pass a mutable reference to a `Transaction`
-//! and call `try!` on the result. You should not handle the error yourself.
+//! and call `try!` on the result or use `?`. You should not handle the error yourself, because it
+//! breaks consistency.
 //!
 //! ```
 //! use stm::{atomically, TVar};
 //! let var = TVar::new(0);
 //!
 //! let x = atomically(|trans| {
-//!     try!(var.write(trans, 42));
-//!     var.read(trans) // return the value saved in var
+//!     var.write(trans, 42)?; // Pass failure to parent.
+//!     var.read(trans) // Return the value saved in var.
 //! });
 //!
 //! println!("var = {}", x);
@@ -75,30 +80,32 @@
 //! you should obey when dealing with software transactional memory:
 //!
 //! * Don't run code with side effects, especially no IO-code,
-//! because stm is designed to be run multiple times. Return a
-//! closure if you have to.
+//! because stm repeats the computation when it detects inconsistent state.
+//! Return a closure if you have to.
 //! * Don't handle the error types yourself, unless you absolutely know, what you
-//! are doing. Use `Transaction::or`, to try alternatives.
-//! * Don't run `atomically` inside of another, because your thread will
-//! immediately panic. When you use STM in the inner of a function then
-//! express that in the public interface, by taking a `&mut Transaction` and 
-//! returning a `StmResult<T>`. Callers can safely compose it into
+//! are doing. Use `Transaction::or`, to combine alternative paths. Always call `try!` or
+//! `?` and never ignore a `StmResult`.
+//! * Don't run `atomically` inside of another. `atomically` is designed to have side effects
+//! and will therefore break stm's assumptions. Nested calls are detected at runtime and
+//! handled with panic.
+//! When you use STM in the inner of a function, then
+//! express it in the public interface, by taking `&mut Transaction` as parameter and 
+//! returning `StmResult<T>`. Callers can safely compose it into
 //! larger blocks.
-//! * Don't mix locks and transactions. Your code will easily deadlock and slow
+//! * Don't mix locks and transactions. Your code will easily deadlock or slow
 //! down on unpredictably.
-//! * When you put an `Arc` into a `Var`, don't use inner mutability
-//! to modify it because, the inner still points to the original value.
+//! * Don't use inner mutability to change the content of a `TVar`.
 //!
 //! # Speed
 //!
 //! Generally keep your atomic blocks as small as possible, because
 //! the more time you spend, the more likely it is, to collide with
-//! other threads. For STM, reading vars is quite slow, because it
-//! needs to look them up in the log every time, they are written to,
-//! and every used var increases the chance of collisions. You should
+//! other threads. For STM, reading `TVar`s is quite slow, because it
+//! needs to look them up in the log every time.
+//! Every used `TVar` increases the chance of collisions. Therefore you should
 //! keep the amount of accessed variables as low as needed.
 //!
-#![cfg_attr(feature = "dev", allow(unstable_features))]
+//#![cfg_attr(feature = "dev", allow(unstable_features))]
 #![cfg_attr(feature = "dev", feature(plugin))]
 #![cfg_attr(feature = "dev", plugin(clippy))]
 
@@ -148,7 +155,7 @@ fn test_stm_nested() {
     let var = TVar::new(0);
 
     let x = atomically(|trans| {
-        try!(var.write(trans, 42));
+        var.write(trans, 42)?;
         var.read(trans)
     });
 
@@ -175,7 +182,7 @@ fn test_threaded() {
     let x = test::async(800,
         move || {
             atomically(|trans| {
-                let x = try!(var_ref.read(trans));
+                let x = var_ref.read(trans)?;
                 if x == 0 {
                     retry()
                 } else {
@@ -207,7 +214,7 @@ fn test_read_write_interfere() {
     let t = thread::spawn(move || {
         atomically(|log| {
             // read the var
-            let x = try!(var_ref.read(log));
+            let x = var_ref.read(log)?;
             // ensure that x var_ref changes in between
             thread::sleep(Duration::from_millis(500));
 
@@ -252,7 +259,7 @@ fn test_or_nocommit() {
 
     let x = atomically(|trans| {
         trans.or(|trans| {
-            try!(var.write(trans, 23));
+            var.write(trans, 23)?;
             retry()
         },
         |trans| {

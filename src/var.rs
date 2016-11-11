@@ -17,36 +17,36 @@ use super::result::*;
 use super::transaction::control_block::ControlBlock;
 use super::Transaction;
 
-/// contains all the useful data for a Var while beeing the same type
+/// `VarControlBlock` contains all the useful data for a `Var` while beeing the same type.
 ///
 /// The control block is accessed from other threads directly whereas `Var`
-/// is just a typesafe wrapper around it
+/// is just a typesafe wrapper around it.
 pub struct VarControlBlock {
-    /// list of all waiting threads protected by a mutex
+    /// `waiting_threads` is a list of all waiting threads protected by a mutex.
     waiting_threads: Mutex<Vec<Weak<ControlBlock>>>,
 
-    /// counter for all dead threads
+    /// `dead_threads` is a counter for all dead threads.
     ///
-    /// when there are many dead threads waiting for a change but
-    /// nobody changes the value then an automatic collection is
-    /// performed
+    /// When there are many dead threads waiting for a change, but
+    /// nobody changes the value, then an automatic collection is
+    /// performed.
     dead_threads: AtomicUsize,
 
-    /// the inner value of the Var
+    /// The inner value of the Var.
     ///
-    /// It can be shared through a Arc without copying it too often
+    /// It can be shared through a Arc without copying it too often.
     ///
-    /// the Arc is also used by the threads to detect changes
-    /// the value in it should not be changed or locked because
+    /// The Arc is also used by the threads to detect changes.
+    /// The value in it should not be changed or locked because
     /// that may cause multiple threads to block unforeseen as well as
-    /// causing deadlocks
+    /// causing deadlocks.
     ///
-    /// the shared reference is protected by a `RWLock` so that multiple
+    /// The shared reference is protected by a `RWLock` so that multiple
     /// threads can safely block it for ensuring atomic commits without
-    /// preventing other threads from accessing it
+    /// preventing other threads from accessing it.
     ///
-    /// starvation may occur when one thread wants to write-lock but others
-    /// hold read-locks
+    /// Starvation may occur when one thread wants to write-lock but others
+    /// hold read-locks.
     pub value: RwLock<Arc<Any + Send + Sync>>,
 }
 
@@ -170,17 +170,12 @@ impl<T> TVar<T>
         }
     }
 
-    /// read a value atomically
+    /// `read_atomic` reads a value atomically.
     ///
-    /// this should be called from outside of stm and is faster
-    /// than wrapping a read in STM but is not composable
+    /// `read_atomic` should be called from outside of stm and is faster
+    /// than wrapping a read in STM, but it is not composable.
     ///
-    /// `read_atomic` returns a clone of the value.
-    ///
-    /// If the value contains a shared reference mutating it is
-    /// a side effect which may break STM-semantics
-    ///
-    /// This is a faster alternative to 
+    /// It is a faster alternative to 
     ///
     /// ```
     /// use stm::*;
@@ -188,6 +183,10 @@ impl<T> TVar<T>
     /// let var = TVar::new(0);
     /// atomically(|trans| var.read(trans));
     /// ```
+    ///
+    /// `read_atomic` returns a clone of the value.
+    /// The value should not contain shared references with internal
+    /// mutability.
     ///
     pub fn read_atomic(&self) -> T {
         let val = self.read_ref_atomic();
@@ -214,29 +213,29 @@ impl<T> TVar<T>
     /// The normal way to access a var.
     ///
     /// It is equivalent to `transaction.read(&var)`, but more
-    /// ergonomic.
+    /// convenient.
     pub fn read(&self, transaction: &mut Transaction) -> StmResult<T> {
-        transaction.read(&self)
+        transaction.read(self)
     }
 
     /// The normal way to write a var.
     ///
     /// It is equivalent to `transaction.write(&var, value)`, but more
-    /// ergonomic.
+    /// convenient.
     pub fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()> {
-        transaction.write(&self, value)
+        transaction.write(self, value)
     }
     
-    /// access the control block of the var
+    /// Access the control block of the var.
     ///
-    /// internal use only
+    /// Internal use only!
     pub fn control_block(&self) -> &Arc<VarControlBlock> {
         &self.control_block
     }
 }
 
 
-/// test if a waiting and waking of threads works
+/// Test if a waiting and waking of threads works.
 #[test]
 fn test_read_atomic() {
     let var = TVar::new(42);

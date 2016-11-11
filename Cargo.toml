@@ -1,6 +1,6 @@
 [package]
 name = "stm"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Marthog <Marthog@users.noreply.github.com>"]
 
 description = "Implementation of Software transactional memory. Allows composable atomic operations."
@@ -8,11 +8,11 @@ description = "Implementation of Software transactional memory. Allows composabl
 license = "MIT OR Apache-2.0"
 homepage = "https://github.com/Marthog/rust-stm"
 repository = "https://github.com/Marthog/rust-stm"
-documentation = "http://marthog.github.io/rust-stm/target/doc/stm"
+documentation = "https://docs.rs/stm"
 
 readme = "README.md"
 
-keywords = ["stm", "atomic", "transaction"]
+keywords = ["stm", "atomic", "transaction", "lockfree", "concurrent"]
 
 
 [lib]
@@ -35,7 +35,7 @@ doc = true
 
 
 [dependencies]
-clippy = {version = "0.0.63", optional = true}
+clippy = {version = "*", optional = true}
 
 [features]
 default = []

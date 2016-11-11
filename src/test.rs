@@ -40,6 +40,8 @@ where F: Send + FnOnce() -> T + 'static,
         return a;
     }
 
+    // Give enough time for travis to get up.
+    // Sleep in 50 ms steps so that it does not take too much time.
     for _ in 0..duration_ms/50 {
         thread::sleep(Duration::from_millis(50));
         if let a@Some(_) = rx.try_recv().ok() {
