@@ -34,9 +34,5 @@ bench = true
 doc = true
 
 
-[dependencies]
-clippy = {version = "*", optional = true}
-
 [features]
 default = []
-dev = ["clippy"]

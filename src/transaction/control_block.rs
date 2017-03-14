@@ -35,7 +35,7 @@ pub struct ControlBlock {
 }
 
 impl ControlBlock {
-    #[cfg_attr(feature = "dev", allow(new_without_default_derive))]
+    #[cfg_attr(feature = "cargo-clippy", allow(new_without_default_derive))]
 
     /// Create a new StmControlBlock.
     pub fn new() -> ControlBlock {

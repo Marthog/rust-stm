@@ -105,9 +105,6 @@
 //! Every used `TVar` increases the chance of collisions. Therefore you should
 //! keep the amount of accessed variables as low as needed.
 //!
-//#![cfg_attr(feature = "dev", allow(unstable_features))]
-#![cfg_attr(feature = "dev", feature(plugin))]
-#![cfg_attr(feature = "dev", plugin(clippy))]
 
 mod transaction;
 mod var;
