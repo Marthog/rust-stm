@@ -42,11 +42,11 @@ pub struct VarControlBlock {
     /// causing deadlocks.
     ///
     /// The shared reference is protected by a `RWLock` so that multiple
-    /// threads can safely block it for ensuring atomic commits without
-    /// preventing other threads from accessing it.
+    /// threads can safely block it. This ensures consistency, without
+    /// preventing other threads from accessing the values.
     ///
-    /// Starvation may occur when one thread wants to write-lock but others
-    /// hold read-locks.
+    /// Starvation may occur, if one thread wants to write-lock but others
+    /// keep holding read-locks.
     pub value: RwLock<Arc<Any + Send + Sync>>,
 }
 
@@ -64,7 +64,7 @@ impl VarControlBlock {
         Arc::new(ctrl)
     }
 
-    /// wake all threads that are waiting for the used var
+    /// Wake all threads that are waiting for this block.
     pub fn wake_all(&self) {
         // Atomically take all waiting threads from the value.
         let threads = {
@@ -91,28 +91,26 @@ impl VarControlBlock {
         guard.push(Arc::downgrade(thread));
     }
 
-    /// mark another `StmControlBlock` as dead
+    /// Mark another `StmControlBlock` as dead.
     ///
-    /// when the count of dead control blocks is too high
-    /// then perform a cleanup
-    ///
-    /// this prevents masses of old `StmControlBlock` to
-    /// pile up when a variable is often read but not written
+    /// If the count of dead control blocks is too high,
+    /// perform a cleanup.
+    /// This prevents masses of old `StmControlBlock` to
+    /// pile up when a variable is often read but rarely written.
     pub fn set_dead(&self) {
-        // increase by one
+        // Increase by one.
         let deads = self.dead_threads.fetch_add(1, atomic::Ordering::Relaxed);
 
-        // if there are too many then cleanup
+        // If there are too many then cleanup.
 
-        // there is a potential data race that may occure when
+        // There is a potential data race that may occure when
         // one thread reads the number and then operates on
-        // outdated data but that causes just unnecessary locks
-        // to occur and nothing serious
+        // outdated data, but no serious mistakes may happen.
         if deads >= 64 {
             let mut guard = self.waiting_threads.lock().unwrap();
             self.dead_threads.store(0, atomic::Ordering::SeqCst);
 
-            // remove all dead ones possibly free up the memory
+            // Remove all dead ones. Possibly free up the memory.
             guard.retain(|t| t.upgrade().is_some());
         }
     }
@@ -123,7 +121,7 @@ impl VarControlBlock {
 }
 
 
-// implement some operators so that VarControlBlocks can be sorted
+// Implement some operators so that VarControlBlocks can be sorted.
 
 impl PartialEq for VarControlBlock {
     fn eq(&self, other: &Self) -> bool {
@@ -150,19 +148,20 @@ impl PartialOrd for VarControlBlock {
 /// A variable that can be used in a STM-Block
 #[derive(Clone)]
 pub struct TVar<T> {
-    /// the control block is the inner of the variable
+    /// The control block is the inner of the variable.
     /// 
-    /// the rest is just the typesafe interface
+    /// The rest of `TVar` is just the typesafe interface.
     control_block: Arc<VarControlBlock>,
-    /// this marker is needed so that the variable can be used in a threadsafe
-    /// manner
+
+    /// This marker is needed so that the variable can be used in a typesafe
+    /// manner.
     _marker: PhantomData<T>,
 }
 
 impl<T> TVar<T>
     where T: Any + Sync + Send + Clone
 {
-    /// create a new var
+    /// Create a new `TVar`.
     pub fn new(val: T) -> TVar<T> {
         TVar {
             control_block: VarControlBlock::new(val),
@@ -170,12 +169,9 @@ impl<T> TVar<T>
         }
     }
 
-    /// `read_atomic` reads a value atomically.
+    /// `read_atomic` reads a value atomically, without starting a transaction.
     ///
-    /// `read_atomic` should be called from outside of stm and is faster
-    /// than wrapping a read in STM, but it is not composable.
-    ///
-    /// It is a faster alternative to 
+    /// It is semantically equivalent to 
     ///
     /// ```
     /// use stm::*;
@@ -184,10 +180,9 @@ impl<T> TVar<T>
     /// atomically(|trans| var.read(trans));
     /// ```
     ///
-    /// `read_atomic` returns a clone of the value.
-    /// The value should not contain shared references with internal
-    /// mutability.
+    /// but more efficient.
     ///
+    /// `read_atomic` returns a clone of the value.
     pub fn read_atomic(&self) -> T {
         let val = self.read_ref_atomic();
 
@@ -197,11 +192,11 @@ impl<T> TVar<T>
             .clone()
     }
 
-    /// read a value atomically but return a reference
+    /// Read a value atomically but return a reference.
     ///
-    /// this is mostly used internally but can be useful in
-    /// certain cases where the additional clone performed
-    /// by read_atomic is unwanted
+    /// This is mostly used internally, but can be useful in
+    /// some cases, because `read_atomic` performs clones the
+    /// value, which may be expensive.
     pub fn read_ref_atomic(&self) -> Arc<Any + Send + Sync> {
         self.control_block
             .value
@@ -225,6 +220,46 @@ impl<T> TVar<T>
     pub fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()> {
         transaction.write(self, value)
     }
+
+    /// Modify the content of a `TVar` with the function f.
+    ///
+    /// ```
+    /// use stm::*;
+    ///
+    ///
+    /// let var = TVar::new(21);
+    /// atomically(|trans| 
+    ///     var.modify(trans, |x| x*2)
+    /// );
+    ///
+    /// assert_eq!(var.read_atomic(), 42);
+    /// ```
+    pub fn modify<F>(&self, transaction: &mut Transaction, f: F) -> StmResult<()> 
+    where F: FnOnce(T) -> T
+    {
+        let old = self.read(transaction)?;
+        self.write(transaction, f(old))
+    }
+    
+    /// Replaces the value of a `TVar` with a new one, returning
+    /// the old one.
+    ///
+    /// ```
+    /// use stm::*;
+    ///
+    /// let var = TVar::new(0);
+    /// let x = atomically(|trans| 
+    ///     var.replace(trans, 42)
+    /// );
+    ///
+    /// assert_eq!(x, 0);
+    /// assert_eq!(var.read_atomic(), 42);
+    /// ```
+    pub fn replace(&self, transaction: &mut Transaction, value: T) -> StmResult<T> {
+        let old = self.read(transaction)?;
+        self.write(transaction, value)?;
+        Ok(old)
+    }
     
     /// Access the control block of the var.
     ///
@@ -235,10 +270,13 @@ impl<T> TVar<T>
 }
 
 
-/// Test if a waiting and waking of threads works.
 #[test]
+// Test if creating and reading a TVar works.
 fn test_read_atomic() {
     let var = TVar::new(42);
 
     assert_eq!(42, var.read_atomic());
 }
+
+
+// More tests are in lib.rs.

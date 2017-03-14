@@ -38,9 +38,9 @@
 //!
 //! You should only use the functions that are safe to use.
 //!
-//! Don't have side effects except for the atomic variables, from this library.
-//! Especially a mutex or other blocking mechanisms inside of software transactional
-//! memory is dangerous.
+//! Don't have side effects, except those provided by `TVar`.
+//! Especially a mutexes or other blocking mechanisms inside of software transactional
+//! memory are dangerous.
 //!
 //! You can run the top-level atomic operation by calling `atomically`.
 //!
@@ -307,3 +307,4 @@ fn test_or_nested_second() {
 
     assert_eq!(x, 42);
 }
+
