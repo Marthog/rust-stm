@@ -6,9 +6,10 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::{Mutex, Condvar};
-use std::sync::atomic::{AtomicBool, Ordering};
+// Mutex<bool> is neccessary for condition variable.
+#![cfg_attr(feature = "cargo-clippy", allow(mutex_atomic))]
 
+use std::sync::{Mutex, Condvar};
 #[cfg(test)]
 use super::super::test::{terminates, terminates_async};
 
@@ -20,14 +21,8 @@ use super::super::test::{terminates, terminates_async};
 /// Be careful when using this directly, 
 /// because you can easily create deadlocks.
 pub struct ControlBlock {
-    /// `blocked` is set to true, if the ControlBlock is still blocked.
-    /// It could be put in the mutex, but that may
-    /// block a thread, that is currently releasing
-    /// multiple variables on writing that value.
-    blocked: AtomicBool,
-
     /// A lock needed for the condition variable.
-    lock: Mutex<()>,
+    lock: Mutex<bool>,
 
     /// Condition variable is used for pausing and
     /// waking the thread.
@@ -40,8 +35,7 @@ impl ControlBlock {
     /// Create a new StmControlBlock.
     pub fn new() -> ControlBlock {
         ControlBlock {
-            blocked: AtomicBool::new(true),
-            lock: Mutex::new(()),
+            lock: Mutex::new(true),
             wait_cvar: Condvar::new(),
         }
     }
@@ -50,10 +44,12 @@ impl ControlBlock {
     ///
     /// Need to be called from outside of STM.
     pub fn set_changed(&self) {
-        // unblock
-        self.blocked.store(false, Ordering::SeqCst);
+        {
+            let mut guard = self.lock.lock().unwrap();
+            *guard = false;
+        }
         // wake thread
-        self.wait_cvar.notify_one();
+        self.wait_cvar.notify_all();
     }
 
     /// Block until one variable has changed.
@@ -62,11 +58,9 @@ impl ControlBlock {
     ///
     /// `wait` needs to be called by the STM instance itself.
     pub fn wait(&self) {
-        let mut blocked = self.blocked.load(Ordering::SeqCst);
         let mut lock = self.lock.lock().unwrap();
-        while blocked {
+        while *lock {
             lock = self.wait_cvar.wait(lock).unwrap();
-            blocked = self.blocked.load(Ordering::SeqCst);
         }
     }
 }
