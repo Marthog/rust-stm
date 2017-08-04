@@ -260,6 +260,11 @@ impl<T> TVar<T>
         self.write(transaction, value)?;
         Ok(old)
     }
+
+    /// Check if two `TVar`s refer to the same position.
+    pub fn ref_eq(this: &TVar<T>, other: &TVar<T>) -> bool {
+        Arc::ptr_eq(&this.control_block, &other.control_block)
+    }
     
     /// Access the control block of the var.
     ///
