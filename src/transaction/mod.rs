@@ -48,6 +48,10 @@ impl Drop for TransactionGuard {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionControl {
+    Retry, Abort
+}
 
 /// Transaction tracks all the read and written variables.
 ///
@@ -76,6 +80,27 @@ impl Transaction {
     pub fn with<T, F>(f: F) -> T 
     where F: Fn(&mut Transaction) -> StmResult<T>,
     {
+        Transaction::with_control(|_| TransactionControl::Retry, f)
+            .expect("Transaction::with can not abort execution")
+    }
+
+    /// Run a function with a transaction.
+    ///
+    /// `with_control` takes another control function, that
+    /// can steer the control flow and possible terminate early.
+    ///
+    /// `control` can react to counters, timeouts or external inputs.
+    ///
+    /// It allows the user to fall back to another strategy, like a global lock
+    /// in the case of too much contention.
+    ///
+    /// Please not, that the transaction may still infinitely wait for changes when `retry` is
+    /// called and `control` does not abort.
+    /// If you absolutely need a timeout, another thread should signal this through a TVar.
+    pub fn with_control<T, F, C>(mut control: C, f: F) -> Option<T>
+    where F: Fn(&mut Transaction) -> StmResult<T>,
+          C: FnMut(StmError) -> TransactionControl,
+    {
         let _guard = TransactionGuard::new();
 
         // create a log guard for initializing and cleaning up
@@ -89,16 +114,19 @@ impl Transaction {
                 // on success exit loop
                 Ok(t) => {
                     if transaction.commit() {
-                        return t;
+                        return Some(t);
                     }
                 }
 
-                // on failure rerun immediately
-                Err(Failure) => { }
+                Err(e) => {
+                    if let TransactionControl::Abort = control(e) {
+                        return None;
+                    }
 
-                // on retry wait for changes
-                Err(Retry) => {
-                    transaction.wait_for_change();
+                    // on retry wait for changes
+                    if let Retry = e {
+                        transaction.wait_for_change();
+                    }
                 }
             }
 
@@ -167,13 +195,14 @@ impl Transaction {
 
     /// Combine two calculations. When one blocks with `retry`, 
     /// run the other, but don't commit the changes in the first.
-    /// It still blocks on all, so that you can wait for one of
-    /// two alternatives.
+    ///
+    /// If both block, `Transaction::or` still waits for `TVar`s in both functions.
+    /// Use `Transaction::or` instead of handling errors directly with the `Result::or`.
+    /// The later does not handle all the blocking correctly.
     pub fn or<T, F1, F2>(&mut self, first: F1, second: F2) -> StmResult<T>
         where F1: Fn(&mut Transaction) -> StmResult<T>,
               F2: Fn(&mut Transaction) -> StmResult<T>,
     {
-
         // Create a backup of the log.
         let mut copy = Transaction {
             vars: self.vars.clone()
@@ -355,94 +384,138 @@ fn same_address<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
 }
 
 
-/// Test `same_address` on a cloned Arc.
-#[test]
-fn test_same_address_equal() {
-    let t1 = Arc::new(42);
-    let t2 = t1.clone();
-    
-    assert!(same_address(&t1, &t2));
-}
+#[cfg(test)]
+mod test {
+    use super::*;
 
-/// Test `same_address` on differenc Arcs with same value.
-#[test]
-fn test_same_address_different() {
-    let t1 = Arc::new(42);
-    let t2 = Arc::new(42);
-    
-    assert!(!same_address(&t1, &t2));
-}
+    /// Test `same_address` on a cloned Arc.
+    #[test]
+    fn test_same_address_equal() {
+        let t1 = Arc::new(42);
+        let t2 = t1.clone();
+        
+        assert!(same_address(&t1, &t2));
+    }
 
-#[test]
-fn test_read() {
-    let mut log = Transaction::new();
-    let var = TVar::new(vec![1, 2, 3, 4]);
+    /// Test `same_address` on differenc Arcs with same value.
+    #[test]
+    fn test_same_address_different() {
+        let t1 = Arc::new(42);
+        let t2 = Arc::new(42);
+        
+        assert!(!same_address(&t1, &t2));
+    }
 
-    // The variable can be read.
-    assert_eq!(&*log.read(&var).unwrap(), &[1, 2, 3, 4]);
-}
+    #[test]
+    fn test_read() {
+        let mut log = Transaction::new();
+        let var = TVar::new(vec![1, 2, 3, 4]);
 
-#[test]
-fn test_write_read() {
-    let mut log = Transaction::new();
-    let var = TVar::new(vec![1, 2]);
+        // The variable can be read.
+        assert_eq!(&*log.read(&var).unwrap(), &[1, 2, 3, 4]);
+    }
 
-    log.write(&var, vec![1, 2, 3, 4]).unwrap();
+    #[test]
+    fn test_write_read() {
+        let mut log = Transaction::new();
+        let var = TVar::new(vec![1, 2]);
 
-    // Consecutive reads get the updated version.
-    assert_eq!(log.read(&var).unwrap(), [1, 2, 3, 4]);
+        log.write(&var, vec![1, 2, 3, 4]).unwrap();
 
-    // The original value is still preserved.
-    assert_eq!(var.read_atomic(), [1, 2]);
-}
+        // Consecutive reads get the updated version.
+        assert_eq!(log.read(&var).unwrap(), [1, 2, 3, 4]);
 
-#[test]
-fn test_transaction_simple() {
-    let x = Transaction::with(|_| Ok(42));
-    assert_eq!(x, 42);
-}
+        // The original value is still preserved.
+        assert_eq!(var.read_atomic(), [1, 2]);
+    }
 
-#[test]
-fn test_transaction_read() {
-    let read = TVar::new(42);
+    #[test]
+    fn test_transaction_simple() {
+        let x = Transaction::with(|_| Ok(42));
+        assert_eq!(x, 42);
+    }
 
-    let x = Transaction::with(|trans| {
-        read.read(trans)
-    });
+    #[test]
+    fn test_transaction_read() {
+        let read = TVar::new(42);
 
-    assert_eq!(x, 42);
-}
+        let x = Transaction::with(|trans| {
+            read.read(trans)
+        });
 
-#[test]
-fn test_transaction_write() {
-    let write = TVar::new(42);
+        assert_eq!(x, 42);
+    }
 
-    Transaction::with(|trans| {
-        write.write(trans, 0)
-    });
+    /// Run a transaction with a control function, that always aborts.
+    /// The transaction still tries to run a single time and should successfully 
+    /// commit in this test.
+    #[test]
+    fn transaction_with_control_abort_on_single_run() {
+        let read = TVar::new(42);
 
-    assert_eq!(write.read_atomic(), 0);
-}
+        let x = Transaction::with_control(|_| TransactionControl::Abort, |tx| {
+            read.read(tx)
+        });
 
-#[test]
-fn test_transaction_copy() {
-    let read = TVar::new(42);
-    let write = TVar::new(0);
+        assert_eq!(x, Some(42));
+    }
 
-    Transaction::with(|trans| {
-        let r = read.read(trans)?;
-        write.write(trans, r)
-    });
+    /// Run a transaction with a control function, that always aborts.
+    /// The transaction retries infinitely often. The control function will abort this loop.
+    #[test]
+    fn transaction_with_control_abort_on_retry() {
+        let x: Option<i32> = Transaction::with_control(|_| TransactionControl::Abort, |_| {
+            Err(Retry)
+        });
 
-    assert_eq!(write.read_atomic(), 42);
-}
+        assert_eq!(x, None);
+    }
 
-/// Test if nested transactions are correctly detected.
-#[test]
-#[should_panic]
-fn test_transaction_nested_fail() {
-    Transaction::with(|_| {
-        Transaction::with(|_| Ok(42));
-        Ok(1)
-    });
+
+    #[test]
+    fn test_transaction_write() {
+        let write = TVar::new(42);
+
+        Transaction::with(|trans| {
+            write.write(trans, 0)
+        });
+
+        assert_eq!(write.read_atomic(), 0);
+    }
+
+    #[test]
+    fn test_transaction_copy() {
+        let read = TVar::new(42);
+        let write = TVar::new(0);
+
+        Transaction::with(|trans| {
+            let r = read.read(trans)?;
+            write.write(trans, r)
+        });
+
+        assert_eq!(write.read_atomic(), 42);
+    }
+
+    // Dat name. seriously? 
+    #[test]
+    fn test_transaction_control_stuff() {
+        let read = TVar::new(42);
+        let write = TVar::new(0);
+
+        Transaction::with(|trans| {
+            let r = read.read(trans)?;
+            write.write(trans, r)
+        });
+
+        assert_eq!(write.read_atomic(), 42);
+    }
+    /// Test if nested transactions are correctly detected.
+    #[test]
+    #[should_panic]
+    fn test_transaction_nested_fail() {
+        Transaction::with(|_| {
+            Transaction::with(|_| Ok(42));
+            Ok(1)
+        });
+    }
 }

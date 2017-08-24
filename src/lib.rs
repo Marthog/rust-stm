@@ -115,8 +115,8 @@ mod test;
 
 pub use var::TVar;
 pub use transaction::Transaction;
+pub use transaction::TransactionControl;
 pub use result::*;
-
 
 /// call `retry`, to abort an operation. It takes another path of an
 /// `Transaction::or` or blocks until any variable changes.
