@@ -195,8 +195,8 @@ impl<T> TVar<T>
     /// Read a value atomically but return a reference.
     ///
     /// This is mostly used internally, but can be useful in
-    /// some cases, because `read_atomic` performs clones the
-    /// value, which may be expensive.
+    /// some cases, because `read_atomic` clones the
+    /// inner value, which may be expensive.
     pub fn read_ref_atomic(&self) -> Arc<Any + Send + Sync> {
         self.control_block
             .value
