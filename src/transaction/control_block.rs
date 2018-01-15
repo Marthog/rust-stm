@@ -67,55 +67,58 @@ impl ControlBlock {
 
 
 // TESTS
+#[cfg(test)]
+mod test {
+    use super::*;
 
-/// Test if `ControlBlock` correctly blocks on `wait`.
-#[test]
-fn test_blocked() {
-    let ctrl = ControlBlock::new();
-    // waiting should immediately finish
-    assert!(!terminates(100, move || ctrl.wait()));
+    /// Test if `ControlBlock` correctly blocks on `wait`.
+    #[test]
+    fn blocked() {
+        let ctrl = ControlBlock::new();
+        // waiting should immediately finish
+        assert!(!terminates(100, move || ctrl.wait()));
+    }
+
+    /// A `ControlBlock` does immediately return,
+    /// when it was set to changed before calling waiting.
+    ///
+    /// This scenario may occur, when a variable changes, while the
+    /// transaction has not yet blocked.
+    #[test]
+    fn wait_after_change() {
+        let ctrl = ControlBlock::new();
+        // set to changed
+        ctrl.set_changed();
+        // waiting should immediately finish
+        assert!(terminates(50, move || ctrl.wait()));
+    }
+
+    /// Test calling `set_changed` multiple times.
+    #[test]
+    fn wait_after_multiple_changes() {
+        let ctrl = ControlBlock::new();
+        // set to changed
+        ctrl.set_changed();
+        ctrl.set_changed();
+        ctrl.set_changed();
+        ctrl.set_changed();
+
+        // waiting should immediately finish
+        assert!(terminates(50, move || ctrl.wait()));
+    }
+
+
+    /// Perform a wakeup from another thread.
+    #[test]
+    fn wait_threaded_wakeup() {
+        use std::sync::Arc;
+
+        let ctrl = Arc::new(ControlBlock::new());
+        let ctrl2 = ctrl.clone();
+        let terminated = terminates_async(500,
+                                    move || ctrl.wait(),
+                                    move || ctrl2.set_changed());
+
+        assert!(terminated);
+    }
 }
-
-/// A `ControlBlock` does immediately return,
-/// when it was set to changed before calling waiting.
-///
-/// This scenario may occur, when a variable changes, while the
-/// transaction has not yet blocked.
-#[test]
-fn test_wait_after_change() {
-    let ctrl = ControlBlock::new();
-    // set to changed
-    ctrl.set_changed();
-    // waiting should immediately finish
-    assert!(terminates(50, move || ctrl.wait()));
-}
-
-/// Test calling `set_changed` multiple times.
-#[test]
-fn test_wait_after_multiple_changes() {
-    let ctrl = ControlBlock::new();
-    // set to changed
-    ctrl.set_changed();
-    ctrl.set_changed();
-    ctrl.set_changed();
-    ctrl.set_changed();
-
-    // waiting should immediately finish
-    assert!(terminates(50, move || ctrl.wait()));
-}
-
-
-/// Perform a wakeup from another thread.
-#[test]
-fn test_wait_threaded_wakeup() {
-    use std::sync::Arc;
-
-    let ctrl = Arc::new(ControlBlock::new());
-    let ctrl2 = ctrl.clone();
-    let terminated = terminates_async(500,
-                                move || ctrl.wait(),
-                                move || ctrl2.set_changed());
-
-    assert!(terminated);
-}
-

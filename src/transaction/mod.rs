@@ -19,7 +19,7 @@ use std::cell::Cell;
 use self::log_var::LogVar;
 use self::log_var::LogVar::*;
 use self::control_block::ControlBlock;
-use super::var::{TVar, VarControlBlock};
+use super::tvar::{TVar, VarControlBlock};
 use super::result::*;
 use super::result::StmError::*;
 
@@ -390,7 +390,7 @@ mod test {
 
     /// Test `same_address` on a cloned Arc.
     #[test]
-    fn test_same_address_equal() {
+    fn same_address_equal() {
         let t1 = Arc::new(42);
         let t2 = t1.clone();
         
@@ -399,7 +399,7 @@ mod test {
 
     /// Test `same_address` on differenc Arcs with same value.
     #[test]
-    fn test_same_address_different() {
+    fn same_address_different() {
         let t1 = Arc::new(42);
         let t2 = Arc::new(42);
         
@@ -407,7 +407,7 @@ mod test {
     }
 
     #[test]
-    fn test_read() {
+    fn read() {
         let mut log = Transaction::new();
         let var = TVar::new(vec![1, 2, 3, 4]);
 
@@ -416,7 +416,7 @@ mod test {
     }
 
     #[test]
-    fn test_write_read() {
+    fn write_read() {
         let mut log = Transaction::new();
         let var = TVar::new(vec![1, 2]);
 
@@ -430,13 +430,13 @@ mod test {
     }
 
     #[test]
-    fn test_transaction_simple() {
+    fn transaction_simple() {
         let x = Transaction::with(|_| Ok(42));
         assert_eq!(x, 42);
     }
 
     #[test]
-    fn test_transaction_read() {
+    fn transaction_read() {
         let read = TVar::new(42);
 
         let x = Transaction::with(|trans| {
@@ -473,7 +473,7 @@ mod test {
 
 
     #[test]
-    fn test_transaction_write() {
+    fn transaction_write() {
         let write = TVar::new(42);
 
         Transaction::with(|trans| {
@@ -484,7 +484,7 @@ mod test {
     }
 
     #[test]
-    fn test_transaction_copy() {
+    fn transaction_copy() {
         let read = TVar::new(42);
         let write = TVar::new(0);
 
@@ -498,7 +498,7 @@ mod test {
 
     // Dat name. seriously? 
     #[test]
-    fn test_transaction_control_stuff() {
+    fn transaction_control_stuff() {
         let read = TVar::new(42);
         let write = TVar::new(0);
 
@@ -509,10 +509,11 @@ mod test {
 
         assert_eq!(write.read_atomic(), 42);
     }
+
     /// Test if nested transactions are correctly detected.
     #[test]
     #[should_panic]
-    fn test_transaction_nested_fail() {
+    fn transaction_nested_fail() {
         Transaction::with(|_| {
             Transaction::with(|_| Ok(42));
             Ok(1)

@@ -107,13 +107,13 @@
 //!
 
 mod transaction;
-mod var;
+mod tvar;
 mod result;
 
 #[cfg(test)]
 mod test;
 
-pub use var::TVar;
+pub use tvar::TVar;
 pub use transaction::Transaction;
 pub use transaction::TransactionControl;
 pub use result::*;
@@ -203,208 +203,214 @@ pub fn optionally<T,F>(tx: &mut Transaction, f: F) -> StmResult<Option<T>>
 }
 
 
-#[test]
-fn test_infinite_retry() {
-    let terminated = test::terminates(300, || { 
-        let _infinite_retry: i32 = atomically(|_| retry());
-    });
-    assert!(!terminated);
-}
+#[cfg(test)]
+mod test_lib {
+    use super::*;
 
-#[test]
-fn test_stm_nested() {
-    let var = TVar::new(0);
-
-    let x = atomically(|trans| {
-        var.write(trans, 42)?;
-        var.read(trans)
-    });
-
-    assert_eq!(42, x);
-}
-
-/// Run multiple threads.
-///
-/// Thread 1: Read a var, block until it is not 0 and then
-/// return that value.
-///
-/// Thread 2: Wait a bit. Then write a value.
-///
-/// Check if Thread 1 is woken up correctly and then check for 
-/// correctness.
-#[test]
-fn test_threaded() {
-    use std::thread;
-    use std::time::Duration;
-
-    let var = TVar::new(0);
-    let var_ref = var.clone();
-
-    let x = test::async(800,
-        move || {
-            atomically(|trans| {
-                let x = var_ref.read(trans)?;
-                if x == 0 {
-                    retry()
-                } else {
-                    Ok(x)
-                }
-            })
-        },
-        move || {
-            thread::sleep(Duration::from_millis(100));
-
-            atomically(|trans| var.write(trans, 42));
-        }
-    ).unwrap();
-
-    assert_eq!(42, x);
-}
-
-
-/// test if a STM calculation is rerun when a Var changes while executing
-#[test]
-fn test_read_write_interfere() {
-    use std::thread;
-    use std::time::Duration;
-
-    // create var
-    let var = TVar::new(0);
-    let var_ref = var.clone();
-
-    // spawn a thread
-    let t = thread::spawn(move || {
-        atomically(|log| {
-            // read the var
-            let x = var_ref.read(log)?;
-            // ensure that x var_ref changes in between
-            thread::sleep(Duration::from_millis(500));
-
-            // write back modified data this should only
-            // happen when the value has not changed
-            var_ref.write(log, x + 10)
+    #[test]
+    fn infinite_retry() {
+        let terminated = test::terminates(300, || { 
+            let _infinite_retry: i32 = atomically(|_| retry());
         });
-    });
+        assert!(!terminated);
+    }
 
-    // ensure that the thread has started and already read the var
-    thread::sleep(Duration::from_millis(100));
+    #[test]
+    fn stm_nested() {
+        let var = TVar::new(0);
 
-    // now change it
-    atomically(|trans| var.write(trans, 32));
+        let x = atomically(|tx| {
+            var.write(tx, 42)?;
+            var.read(tx)
+        });
 
-    // finish and compare
-    let _ = t.join();
-    assert_eq!(42, var.read_atomic());
-}
+        assert_eq!(42, x);
+    }
 
-#[test]
-fn test_or_simple() {
-    let var = TVar::new(42);
+    /// Run multiple threads.
+    ///
+    /// Thread 1: Read a var, block until it is not 0 and then
+    /// return that value.
+    ///
+    /// Thread 2: Wait a bit. Then write a value.
+    ///
+    /// Check if Thread 1 is woken up correctly and then check for 
+    /// correctness.
+    #[test]
+    fn threaded() {
+        use std::thread;
+        use std::time::Duration;
 
-    let x = atomically(|trans| {
-        trans.or(|_| {
-            retry()
-        },
-        |trans| {
-            var.read(trans)
-        })
-    });
+        let var = TVar::new(0);
+        // Clone for other thread.
+        let varc = var.clone();
 
-    assert_eq!(x, 42);
-}
-
-/// A variable should not be written,
-/// when another branch was taken
-#[test]
-fn test_or_nocommit() {
-    let var = TVar::new(42);
-
-    let x = atomically(|trans| {
-        trans.or(|trans| {
-            var.write(trans, 23)?;
-            retry()
-        },
-        |trans| {
-            var.read(trans)
-        })
-    });
-
-    assert_eq!(x, 42);
-}
-
-#[test]
-fn test_or_nested_first() {
-    let var = TVar::new(42);
-
-    let x = atomically(|trans| {
-        trans.or(
-            |t| {
-                t.or(
-                    |_| retry(),
-                    |_| retry()
-                )
+        let x = test::async(800,
+            move || {
+                atomically(|tx| {
+                    let x = varc.read(tx)?;
+                    if x == 0 {
+                        retry()
+                    } else {
+                        Ok(x)
+                    }
+                })
             },
-            |trans| var.read(trans)
-        )
-    });
+            || {
+                thread::sleep(Duration::from_millis(100));
 
-    assert_eq!(x, 42);
-}
+                atomically(|tx| var.write(tx, 42));
+            }
+        ).unwrap();
 
-#[test]
-fn test_or_nested_second() {
-    let var = TVar::new(42);
+        assert_eq!(42, x);
+    }
 
-    let x = atomically(|trans| {
-        trans.or(
-            |_| {
+
+    /// test if a STM calculation is rerun when a Var changes while executing
+    #[test]
+    fn read_write_interfere() {
+        use std::thread;
+        use std::time::Duration;
+
+        // create var
+        let var = TVar::new(0);
+        let varc = var.clone(); // Clone for other thread.
+
+        // spawn a thread
+        let t = thread::spawn(move || {
+            atomically(|tx| {
+                // read the var
+                let x = varc.read(tx)?;
+                // ensure that x varc changes in between
+                thread::sleep(Duration::from_millis(500));
+
+                // write back modified data this should only
+                // happen when the value has not changed
+                varc.write(tx, x + 10)
+            });
+        });
+
+        // ensure that the thread has started and already read the var
+        thread::sleep(Duration::from_millis(100));
+
+        // now change it
+        atomically(|tx| var.write(tx, 32));
+
+        // finish and compare
+        let _ = t.join();
+        assert_eq!(42, var.read_atomic());
+    }
+
+    #[test]
+    fn or_simple() {
+        let var = TVar::new(42);
+
+        let x = atomically(|tx| {
+            tx.or(|_| {
                 retry()
             },
-            |t| t.or(
-                |t2| var.read(t2),
-                |_| retry()
+            |tx| {
+                var.read(tx)
+            })
+        });
+
+        assert_eq!(x, 42);
+    }
+
+    /// A variable should not be written,
+    /// when another branch was taken
+    #[test]
+    fn or_nocommit() {
+        let var = TVar::new(42);
+
+        let x = atomically(|tx| {
+            tx.or(|tx| {
+                var.write(tx, 23)?;
+                retry()
+            },
+            |tx| {
+                var.read(tx)
+            })
+        });
+
+        assert_eq!(x, 42);
+    }
+
+    #[test]
+    fn or_nested_first() {
+        let var = TVar::new(42);
+
+        let x = atomically(|tx| {
+            tx.or(
+                |tx| {
+                    tx.or(
+                        |_| retry(),
+                        |_| retry()
+                    )
+                },
+                |tx| var.read(tx)
             )
-        )
-    });
+        });
 
-    assert_eq!(x, 42);
-}
+        assert_eq!(x, 42);
+    }
 
-#[test]
-fn unwrap_some() {
-    let x = Some(42);
-    let y = atomically(|_| unwrap_or_retry(x));
-    assert_eq!(y, 42);
-}
+    #[test]
+    fn or_nested_second() {
+        let var = TVar::new(42);
 
-#[test]
-fn unwrap_none() {
-    let x: Option<i32> = None;
-    assert_eq!(unwrap_or_retry(x), retry());
-}
+        let x = atomically(|tx| {
+            tx.or(
+                |_| {
+                    retry()
+                },
+                |t| t.or(
+                    |t2| var.read(t2),
+                    |_| retry()
+                )
+            )
+        });
 
-#[test]
-fn guard_true() {
-    let x = guard(true);
-    assert_eq!(x, Ok(()));
-}
+        assert_eq!(x, 42);
+    }
 
-#[test]
-fn guard_false() {
-    let x = guard(false);
-    assert_eq!(x, retry());
-}
+    #[test]
+    fn unwrap_some() {
+        let x = Some(42);
+        let y = atomically(|_| unwrap_or_retry(x));
+        assert_eq!(y, 42);
+    }
 
-#[test]
-fn optionally_succeed() {
-    let x = atomically(|t| 
-        optionally(t, |_| Ok(42)));
-    assert_eq!(x, Some(42));
-}
+    #[test]
+    fn unwrap_none() {
+        let x: Option<i32> = None;
+        assert_eq!(unwrap_or_retry(x), retry());
+    }
 
-#[test]
-fn optionally_fail() {
-    let x:Option<i32> = atomically(|t| 
-        optionally(t, |_| retry()));
-    assert_eq!(x, None);
+    #[test]
+    fn guard_true() {
+        let x = guard(true);
+        assert_eq!(x, Ok(()));
+    }
+
+    #[test]
+    fn guard_false() {
+        let x = guard(false);
+        assert_eq!(x, retry());
+    }
+
+    #[test]
+    fn optionally_succeed() {
+        let x = atomically(|t| 
+            optionally(t, |_| Ok(42)));
+        assert_eq!(x, Some(42));
+    }
+
+    #[test]
+    fn optionally_fail() {
+        let x:Option<i32> = atomically(|t| 
+            optionally(t, |_| retry()));
+        assert_eq!(x, None);
+    }
 }
