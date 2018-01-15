@@ -37,6 +37,10 @@ pub enum LogVar {
     /// so that the threat wakes up when the first path
     /// has been unlocked.
     ReadObsoleteWrite(ArcAny, ArcAny)
+
+
+    // Here would be WriteObsolete, but the write onlies can be discarded immediately
+    // and don't need a representation in the log.
 }
 
 
@@ -45,18 +49,31 @@ impl LogVar {
     pub fn read(&mut self) -> ArcAny {
         use self::LogVar::*;
 
-        let this = self.clone();
-
-        match this {
+        // We do some kind of dance around the borrow checker here.
+        // Ideally we only clone the read value and not the write,
+        // in order to avoid hitting shared memory as least as possible,
+        // but we can not fully avoid it, although these cases happen rarely.
+        let this;
+        let val;
+        match &*self {
             // Use last read value or get written one
-            Read(v) | Write(v) | ReadWrite(_,v) | ReadObsoleteWrite(_,v)     => v,
+            &Read(ref v) | &Write(ref v) | &ReadWrite(_,ref v) => { 
+                return v.clone();
+            }
+
+            &ReadObsoleteWrite(ref w, ref v) => {
+                val = v.clone();
+                this = ReadWrite(w.clone(), v.clone());
+            }
 
             // Upgrade to a real Read
-            ReadObsolete(v)           => {
-                *self = Read(v.clone());
-                v
+            &ReadObsolete(ref v)           => {
+                val = v.clone();
+                this = Read(v.clone());
             }
-        }
+        };
+        *self = this;
+        val
     }
     
     /// Write a value and potentially upgrade the state.
