@@ -80,8 +80,10 @@ impl Transaction {
     pub fn with<T, F>(f: F) -> T 
     where F: Fn(&mut Transaction) -> StmResult<T>,
     {
-        Transaction::with_control(|_| TransactionControl::Retry, f)
-            .expect("Transaction::with can not abort execution")
+        match Transaction::with_control(|_| TransactionControl::Retry, f) {
+            Some(t) => t,
+            None    => unreachable!()
+        }
     }
 
     /// Run a function with a transaction.
@@ -96,7 +98,7 @@ impl Transaction {
     ///
     /// Please not, that the transaction may still infinitely wait for changes when `retry` is
     /// called and `control` does not abort.
-    /// If you absolutely need a timeout, another thread should signal this through a TVar.
+    /// If you need a timeout, another thread should signal this through a TVar.
     pub fn with_control<T, F, C>(mut control: C, f: F) -> Option<T>
     where F: Fn(&mut Transaction) -> StmResult<T>,
           C: FnMut(StmError) -> TransactionControl,
@@ -119,6 +121,7 @@ impl Transaction {
                 }
 
                 Err(e) => {
+                    // Check if the user wants to abort the transaction.
                     if let TransactionControl::Abort = control(e) {
                         return None;
                     }
@@ -137,9 +140,10 @@ impl Transaction {
 
     /// Perform a downcast on a var.
     fn downcast<T: Any + Clone>(var: Arc<Any>) -> T {
-        var.downcast_ref::<T>()
-           .expect("Vars with different types and same address")
-           .clone()
+        match var.downcast_ref::<T>() {
+            Some(s) => s.clone(),
+            None    => unreachable!("TVar has wrong type")
+        }
     }
 
     /// Read a variable and return the value.
@@ -261,7 +265,7 @@ impl Transaction {
         let ctrl = Arc::new(ControlBlock::new());
 
         let vars = mem::replace(&mut self.vars, BTreeMap::new());
-        let mut reads = Vec::new();
+        let mut reads = Vec::with_capacity(self.vars.len());
             
         let blocking = vars.into_iter()
             .filter_map(|(a, b)| {
@@ -274,7 +278,7 @@ impl Transaction {
                 let x = {
                     // Take read lock and read value.
                     let guard = var.value.read().unwrap();
-                    same_address(&value, &guard)
+                    Arc::ptr_eq(&value, &guard)
                 };
                 reads.push(var);
                 x
@@ -299,8 +303,6 @@ impl Transaction {
     ///
     /// Return true for success and false, if a read var has changed
     fn commit(&mut self) -> bool {
-        // Replace with new structure, so that we don't have to copy.
-        let vars = mem::replace(&mut self.vars, BTreeMap::new());
         // Use two phase locking for safely writing data back to the vars.
 
         // First phase: acquire locks.
@@ -309,12 +311,12 @@ impl Transaction {
 
         // Created arrays for storing the locks
         // vector of locks.
-        let mut read_vec = Vec::new();
+        let mut read_vec = Vec::with_capacity(self.vars.len());
 
         // vector of tuple (variable, value, lock)
-        let mut write_vec = Vec::new();
+        let mut write_vec = Vec::with_capacity(self.vars.len());
 
-        for (var, value) in &vars {
+        for (var, value) in &self.vars {
             // lock the variable and read the value
 
             match *value {
@@ -332,7 +334,7 @@ impl Transaction {
                     // take write lock
                     let lock = var.value.write().unwrap();
 
-                    if !same_address(&lock, original) {
+                    if !Arc::ptr_eq(&lock, original) {
                         return false;
                     }
                     // add all data to the vector
@@ -346,7 +348,7 @@ impl Transaction {
                     // Take a read lock.
                     let lock = var.value.read().unwrap();
 
-                    if !same_address(&lock, original) {
+                    if !Arc::ptr_eq(&lock, original) {
                         return false;
                     }
 
@@ -374,38 +376,9 @@ impl Transaction {
     }
 }
 
-
-fn arc_to_address<T: ?Sized>(arc: &Arc<T>) -> usize {
-    &**arc as *const T as *const u32 as usize
-}
-
-fn same_address<T: ?Sized>(a: &Arc<T>, b: &Arc<T>) -> bool {
-    arc_to_address(a) == arc_to_address(b)
-}
-
-
 #[cfg(test)]
 mod test {
     use super::*;
-
-    /// Test `same_address` on a cloned Arc.
-    #[test]
-    fn same_address_equal() {
-        let t1 = Arc::new(42);
-        let t2 = t1.clone();
-        
-        assert!(same_address(&t1, &t2));
-    }
-
-    /// Test `same_address` on differenc Arcs with same value.
-    #[test]
-    fn same_address_different() {
-        let t1 = Arc::new(42);
-        let t2 = Arc::new(42);
-        
-        assert!(!same_address(&t1, &t2));
-    }
-
     #[test]
     fn read() {
         let mut log = Transaction::new();
