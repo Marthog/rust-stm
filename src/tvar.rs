@@ -6,7 +6,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::{Arc, Weak, Mutex, RwLock};
+use std::sync::{Arc, Weak};
+use parking_lot::{Mutex, RwLock};
 use std::mem;
 use std::sync::atomic::{self, AtomicUsize};
 use std::cmp;
@@ -68,7 +69,7 @@ impl VarControlBlock {
     pub fn wake_all(&self) {
         // Atomically take all waiting threads from the value.
         let threads = {
-            let mut guard = self.waiting_threads.lock().unwrap();
+            let mut guard = self.waiting_threads.lock();
             let inner: &mut Vec<_> = &mut guard;
             mem::replace(inner, Vec::new())
         };
@@ -86,7 +87,7 @@ impl VarControlBlock {
 
     /// Add another thread, that waits for mutations of `self`.
     pub fn wait(&self, thread: &Arc<ControlBlock>) {
-        let mut guard = self.waiting_threads.lock().unwrap();
+        let mut guard = self.waiting_threads.lock();
 
         guard.push(Arc::downgrade(thread));
     }
@@ -107,7 +108,7 @@ impl VarControlBlock {
         // one thread reads the number and then operates on
         // outdated data, but no serious mistakes may happen.
         if deads >= 64 {
-            let mut guard = self.waiting_threads.lock().unwrap();
+            let mut guard = self.waiting_threads.lock();
             self.dead_threads.store(0, atomic::Ordering::SeqCst);
 
             // Remove all dead ones. Possibly free up the memory.
@@ -201,7 +202,6 @@ impl<T> TVar<T>
         self.control_block
             .value
             .read()
-            .unwrap()
             .clone()
     }
 

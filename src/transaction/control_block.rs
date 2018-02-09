@@ -9,7 +9,8 @@
 // Mutex<bool> is neccessary for condition variable.
 #![cfg_attr(feature = "cargo-clippy", allow(mutex_atomic))]
 
-use std::sync::{Mutex, Condvar};
+use parking_lot::{Mutex, Condvar};
+
 #[cfg(test)]
 use super::super::test::{terminates, terminates_async};
 
@@ -45,7 +46,7 @@ impl ControlBlock {
     /// Need to be called from outside of STM.
     pub fn set_changed(&self) {
         {
-            let mut guard = self.lock.lock().unwrap();
+            let mut guard = self.lock.lock();
             *guard = false;
         }
         // wake thread
@@ -58,9 +59,9 @@ impl ControlBlock {
     ///
     /// `wait` needs to be called by the STM instance itself.
     pub fn wait(&self) {
-        let mut lock = self.lock.lock().unwrap();
+        let mut lock = self.lock.lock();
         while *lock {
-            lock = self.wait_cvar.wait(lock).unwrap();
+            self.wait_cvar.wait(&mut lock);
         }
     }
 }

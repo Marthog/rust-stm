@@ -277,7 +277,7 @@ impl Transaction {
                 var.wait(&ctrl);
                 let x = {
                     // Take read lock and read value.
-                    let guard = var.value.read().unwrap();
+                    let guard = var.value.read();
                     Arc::ptr_eq(&value, &guard)
                 };
                 reads.push(var);
@@ -323,7 +323,7 @@ impl Transaction {
                 // We need to take a write lock.
                 Write(ref w) | ReadObsoleteWrite(_,ref w)=> {
                     // take write lock
-                    let lock = var.value.write().unwrap();
+                    let lock = var.value.write();
                     // add all data to the vector
                     write_vec.push((var, w, lock));
                 }
@@ -332,7 +332,7 @@ impl Transaction {
                 // take a write lock.
                 ReadWrite(ref original,ref w) => {
                     // take write lock
-                    let lock = var.value.write().unwrap();
+                    let lock = var.value.write();
 
                     if !Arc::ptr_eq(&lock, original) {
                         return false;
@@ -346,7 +346,7 @@ impl Transaction {
                 // Take read lock and check for consistency.
                 Read(ref original) => {
                     // Take a read lock.
-                    let lock = var.value.read().unwrap();
+                    let lock = var.value.read();
 
                     if !Arc::ptr_eq(&lock, original) {
                         return false;

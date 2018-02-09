@@ -106,6 +106,8 @@
 //! keep the amount of accessed variables as low as needed.
 //!
 
+extern crate parking_lot;
+
 mod transaction;
 mod tvar;
 mod result;

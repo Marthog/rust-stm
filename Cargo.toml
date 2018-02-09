@@ -36,3 +36,7 @@ doc = true
 
 [features]
 default = []
+
+[dependencies]
+parking_lot = "0.5"
+
