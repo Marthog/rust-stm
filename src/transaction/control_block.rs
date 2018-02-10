@@ -22,6 +22,7 @@ use super::super::test::{terminates, terminates_async};
 /// Be careful when using this directly, 
 /// because you can easily create deadlocks.
 pub struct ControlBlock {
+
     /// A lock needed for the condition variable.
     lock: Mutex<bool>,
 
@@ -60,7 +61,7 @@ impl ControlBlock {
     /// `wait` needs to be called by the STM instance itself.
     pub fn wait(&self) {
         let mut lock = self.lock.lock();
-        while *lock {
+        if *lock {
             self.wait_cvar.wait(&mut lock);
         }
     }
