@@ -20,7 +20,11 @@ use super::super::test::{terminates, terminates_async};
 /// Be careful when using this directly, 
 /// because you can easily create deadlocks.
 pub struct ControlBlock {
+    /// This is the handle to the thread, that waits on the control block.
     thread: Thread,
+
+    /// Atomic bool stores if the thread has been blocked yet. 
+    /// Make sure, that park is repeated if no change has happened.
     blocked: AtomicBool,
 }
 
