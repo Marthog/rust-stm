@@ -6,10 +6,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-// Mutex<bool> is neccessary for condition variable.
-#![cfg_attr(feature = "cargo-clippy", allow(mutex_atomic))]
-
-use parking_lot::{Mutex, Condvar};
+use std::thread::{self, Thread};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(test)]
 use super::super::test::{terminates, terminates_async};
@@ -22,13 +20,8 @@ use super::super::test::{terminates, terminates_async};
 /// Be careful when using this directly, 
 /// because you can easily create deadlocks.
 pub struct ControlBlock {
-
-    /// A lock needed for the condition variable.
-    lock: Mutex<bool>,
-
-    /// Condition variable is used for pausing and
-    /// waking the thread.
-    wait_cvar: Condvar,
+    thread: Thread,
+    blocked: AtomicBool,
 }
 
 impl ControlBlock {
@@ -37,8 +30,8 @@ impl ControlBlock {
     /// Create a new StmControlBlock.
     pub fn new() -> ControlBlock {
         ControlBlock {
-            lock: Mutex::new(true),
-            wait_cvar: Condvar::new(),
+            thread: thread::current(),
+            blocked: AtomicBool::new(true),
         }
     }
 
@@ -46,12 +39,11 @@ impl ControlBlock {
     ///
     /// Need to be called from outside of STM.
     pub fn set_changed(&self) {
-        {
-            let mut guard = self.lock.lock();
-            *guard = false;
+        // Only wakeup once.
+        if self.blocked.swap(false, Ordering::SeqCst) {
+            // wake thread
+            self.thread.unpark();
         }
-        // wake thread
-        self.wait_cvar.notify_all();
     }
 
     /// Block until one variable has changed.
@@ -60,9 +52,8 @@ impl ControlBlock {
     ///
     /// `wait` needs to be called by the STM instance itself.
     pub fn wait(&self) {
-        let mut lock = self.lock.lock();
-        if *lock {
-            self.wait_cvar.wait(&mut lock);
+        while self.blocked.load(Ordering::SeqCst) {
+            thread::park();
         }
     }
 }
