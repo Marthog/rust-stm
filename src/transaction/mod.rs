@@ -313,8 +313,12 @@ impl Transaction {
         // vector of locks.
         let mut read_vec = Vec::with_capacity(self.vars.len());
 
-        // vector of tuple (variable, value, lock)
+        // vector of tuple (value, lock)
         let mut write_vec = Vec::with_capacity(self.vars.len());
+
+        // vector of written variables
+        let mut written = Vec::with_capacity(self.vars.len());
+
 
         for (var, value) in &self.vars {
             // lock the variable and read the value
@@ -325,7 +329,8 @@ impl Transaction {
                     // take write lock
                     let lock = var.value.write();
                     // add all data to the vector
-                    write_vec.push((var, w, lock));
+                    write_vec.push((w, lock));
+                    written.push(var);
                 }
                 
                 // We need to check for consistency and
@@ -338,7 +343,8 @@ impl Transaction {
                         return false;
                     }
                     // add all data to the vector
-                    write_vec.push((var, w, lock));
+                    write_vec.push((w, lock));
+                    written.push(var);
                 }
                 // Nothing to do. ReadObsolete is only needed for blocking, not
                 // for consistency checks.
@@ -363,10 +369,12 @@ impl Transaction {
         // This allows other threads to continue quickly.
         drop(read_vec);
 
-        for (var, value, mut lock) in write_vec {
+        for (value, mut lock) in write_vec {
             // Commit value.
             *lock = value.clone();
-
+        }
+        
+        for var in written {
             // Unblock all threads waiting for it.
             var.wake_all();
         }
