@@ -37,6 +37,7 @@ doc = true
 [features]
 default = []
 
-[dependencies]
-parking_lot = "0.5"
+[dependencies.parking_lot]
+version = "0.5"
+default-features = false
 
