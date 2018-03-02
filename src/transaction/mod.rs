@@ -178,7 +178,7 @@ impl Transaction {
                 // We do some kind of dance around the borrow checker here.
                 // Ideally we only clone the read value and not the write,
                 // in order to avoid hitting shared memory as least as possible,
-                // but we can not fully avoid it, although these cases happen rarely.
+                // but we can not fully avoid it.
                 match this.clone() {
                     Read(r) => { 
                         check(&r)?;
