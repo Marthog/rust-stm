@@ -13,6 +13,7 @@ use std::sync::atomic::{self, AtomicUsize};
 use std::cmp;
 use std::any::Any;
 use std::marker::PhantomData;
+use std::fmt::{Debug, self};
 
 use super::result::*;
 use super::transaction::control_block::ControlBlock;
@@ -273,6 +274,29 @@ impl<T> TVar<T>
         &self.control_block
     }
 }
+
+/// Debug output a struct.
+///
+/// Note that this function does not print the state atomically.
+/// If another thread modifies the datastructure at the same time, it may print an inconsistent state.
+/// If you need an accurate view, that reflects current thread-local state, you can implement it easily yourself with 
+/// atomically.
+///
+/// Running `atomically` inside a running transaction panics. Therefore `fmt` uses
+/// prints the state.
+impl<T> Debug for TVar<T>
+    where T: Any + Sync + Send + Clone,
+          T: Debug,
+{
+    #[inline(never)]
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        let x = self.read_atomic();
+        f.debug_struct("TVar")
+            .field("value", &x)
+            .finish()
+    }
+}
+
 
 
 #[test]
