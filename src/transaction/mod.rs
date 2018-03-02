@@ -161,6 +161,8 @@ impl Transaction {
         let value = match self.vars.entry(ctrl) {
             // If the variable has been accessed before, then load that value.
             Occupied(mut entry) => {
+                use self::LogVar::*;
+
                 let check = |old: &_| {
                     // Compare with old value. If the value has changed, then end transaction.
                     // This early check inserts a lot of additional branches and atomic operations, 
@@ -171,40 +173,37 @@ impl Transaction {
                     }
                     Ok(())
                 };
-                {
-                    use self::LogVar::*;
-                    let this = entry.get_mut();
+                let this = entry.get_mut();
 
-                    // We do some kind of dance around the borrow checker here.
-                    // Ideally we only clone the read value and not the write,
-                    // in order to avoid hitting shared memory as least as possible,
-                    // but we can not fully avoid it, although these cases happen rarely.
-                    match this.clone() {
-                        Read(r) => { 
-                            check(&r)?;
-                            r
-                        }
-                        Write(w) => {
-                            w
-                        }
-                        ReadWrite(o, w) => {
-                            check(&o)?;
-                            w
-                        }
-                        // Upgrade to a real Read
-                        ReadObsolete(o)           => {
-                            check(&o)?;
-                            *this = Read(o.clone());
-                            o
-                        }
-                        // Upgrade to real ReadWrite.
-                        ReadObsoleteWrite(o, w) => {
-                            check(&o)?;
-                            *this = ReadWrite(o, w.clone());
-                            w
-                        }
-
+                // We do some kind of dance around the borrow checker here.
+                // Ideally we only clone the read value and not the write,
+                // in order to avoid hitting shared memory as least as possible,
+                // but we can not fully avoid it, although these cases happen rarely.
+                match this.clone() {
+                    Read(r) => { 
+                        check(&r)?;
+                        r
                     }
+                    Write(w) => {
+                        w
+                    }
+                    ReadWrite(o, w) => {
+                        check(&o)?;
+                        w
+                    }
+                    // Upgrade to a real Read
+                    ReadObsolete(o)           => {
+                        check(&o)?;
+                        *this = Read(o.clone());
+                        o
+                    }
+                    // Upgrade to real ReadWrite.
+                    ReadObsoleteWrite(o, w) => {
+                        check(&o)?;
+                        *this = ReadWrite(o, w.clone());
+                        w
+                    }
+
                 }
             }
 
