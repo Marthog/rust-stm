@@ -55,32 +55,28 @@ impl LogVar {
         // Ideally we only clone the read value and not the write,
         // in order to avoid hitting shared memory as least as possible,
         // but we can not fully avoid it, although these cases happen rarely.
-        let this;
-        let val;
-        match *self {
-            Read(ref r) => { 
-                return (r.clone(), Some(r.clone()));
+        match self.clone() {
+            Read(r) => { 
+                (r.clone(), Some(r))
             }
-            Write(ref w) => {
-                return (w.clone(), None);
+            Write(w) => {
+                (w, None)
             }
-            ReadWrite(ref o, ref w) => {
-                return (w.clone(), Some(o.clone()));
+            ReadWrite(o, w) => {
+                (w, Some(o.clone()))
             }
             // Upgrade to a real Read
-            ReadObsolete(ref o)           => {
-                val = (o.clone(), Some(o.clone()));
-                this = Read(o.clone());
+            ReadObsolete(o)           => {
+                *self = Read(o.clone());
+                (o.clone(), Some(o))
             }
             // Upgrade to real ReadWrite.
-            ReadObsoleteWrite(ref o, ref w) => {
-                val = (w.clone(), Some(o.clone()));
-                this = ReadWrite(o.clone(), w.clone());
+            ReadObsoleteWrite(o, w) => {
+                *self = ReadWrite(o.clone(), w.clone());
+                (w, Some(o))
             }
 
-        };
-        *self = this;
-        val
+        }
     }
     
 
