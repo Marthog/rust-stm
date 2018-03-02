@@ -152,29 +152,60 @@ impl Transaction {
     /// but may be an outdated or or not yet commited value.
     ///
     /// The used code should be capable of handling inconsistent states
-    /// without running into infinite loops.
+    /// without running into infin loops.
     /// Just the commit of wrong values is prevented by STM.
     pub fn read<T: Send + Sync + Any + Clone>(&mut self, var: &TVar<T>) -> StmResult<T> {
         let ctrl = var.control_block().clone();
+
         // Check if the same var was written before.
         let value = match self.vars.entry(ctrl) {
-
             // If the variable has been accessed before, then load that value.
             Occupied(mut entry) => {
-                let (r, orig) = entry.get_mut().read();
-
-                if let Some(old) = orig {
+                let check = |old: &_| {
                     // Compare with old value. If the value has changed, then end transaction.
                     // This early check inserts a lot of additional branches and atomic operations, 
                     // but propably reduces the chance of accessing inconsistent data.
-
-                    // Read the value from the var.
                     let new = var.read_ref_atomic();
-                    if Arc::ptr_eq(&new, &old) {
+                    if Arc::ptr_eq(&new, old) {
                         return Err(StmError::Failure);
                     }
+                    Ok(())
+                };
+                {
+                    use self::LogVar::*;
+                    let this = entry.get_mut();
+
+                    // We do some kind of dance around the borrow checker here.
+                    // Ideally we only clone the read value and not the write,
+                    // in order to avoid hitting shared memory as least as possible,
+                    // but we can not fully avoid it, although these cases happen rarely.
+                    match this.clone() {
+                        Read(r) => { 
+                            check(&r)?;
+                            r
+                        }
+                        Write(w) => {
+                            w
+                        }
+                        ReadWrite(o, w) => {
+                            check(&o)?;
+                            w
+                        }
+                        // Upgrade to a real Read
+                        ReadObsolete(o)           => {
+                            check(&o)?;
+                            *this = Read(o.clone());
+                            o
+                        }
+                        // Upgrade to real ReadWrite.
+                        ReadObsoleteWrite(o, w) => {
+                            check(&o)?;
+                            *this = ReadWrite(o, w.clone());
+                            w
+                        }
+
+                    }
                 }
-                r
             }
 
             // Else load the variable statically.

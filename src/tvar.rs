@@ -270,7 +270,7 @@ impl<T> TVar<T>
     /// Access the control block of the var.
     ///
     /// Internal use only!
-    pub fn control_block(&self) -> &Arc<VarControlBlock> {
+    pub(crate) fn control_block(&self) -> &Arc<VarControlBlock> {
         &self.control_block
     }
 }

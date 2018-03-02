@@ -45,41 +45,6 @@ pub enum LogVar {
 
 
 impl LogVar {
-    /// Read a value and potentially upgrade the state.
-    ///
-    /// Return a pair (value, original).
-    pub fn read(&mut self) -> (ArcAny, Option<ArcAny>) {
-        use self::LogVar::*;
-
-        // We do some kind of dance around the borrow checker here.
-        // Ideally we only clone the read value and not the write,
-        // in order to avoid hitting shared memory as least as possible,
-        // but we can not fully avoid it, although these cases happen rarely.
-        match self.clone() {
-            Read(r) => { 
-                (r.clone(), Some(r))
-            }
-            Write(w) => {
-                (w, None)
-            }
-            ReadWrite(o, w) => {
-                (w, Some(o.clone()))
-            }
-            // Upgrade to a real Read
-            ReadObsolete(o)           => {
-                *self = Read(o.clone());
-                (o.clone(), Some(o))
-            }
-            // Upgrade to real ReadWrite.
-            ReadObsoleteWrite(o, w) => {
-                *self = ReadWrite(o.clone(), w.clone());
-                (w, Some(o))
-            }
-
-        }
-    }
-    
-
     /// Write a value and potentially upgrade the state.
     pub fn write(&mut self, w: ArcAny)
     {
