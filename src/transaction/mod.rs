@@ -160,7 +160,22 @@ impl Transaction {
         let value = match self.vars.entry(ctrl) {
 
             // If the variable has been accessed before, then load that value.
-            Occupied(mut entry) => entry.get_mut().read(),
+            Occupied(mut entry) => {
+                let (r, orig) = entry.get_mut().read();
+
+                if let Some(old) = orig {
+                    // Compare with old value. If the value has changed, then end transaction.
+                    // This early check inserts a lot of additional branches and atomic operations, 
+                    // but propably reduces the chance of accessing inconsistent data.
+
+                    // Read the value from the var.
+                    let new = var.read_ref_atomic();
+                    if Arc::ptr_eq(&new, &old) {
+                        return Err(StmError::Failure);
+                    }
+                }
+                r
+            }
 
             // Else load the variable statically.
             Vacant(entry) => {

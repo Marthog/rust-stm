@@ -46,7 +46,9 @@ pub enum LogVar {
 
 impl LogVar {
     /// Read a value and potentially upgrade the state.
-    pub fn read(&mut self) -> ArcAny {
+    ///
+    /// Return a pair (value, original).
+    pub fn read(&mut self) -> (ArcAny, Option<ArcAny>) {
         use self::LogVar::*;
 
         // We do some kind of dance around the borrow checker here.
@@ -55,27 +57,33 @@ impl LogVar {
         // but we can not fully avoid it, although these cases happen rarely.
         let this;
         let val;
-        match &*self {
-            // Use last read value or get written one
-            &Read(ref v) | &Write(ref v) | &ReadWrite(_,ref v) => { 
-                return v.clone();
+        match *self {
+            Read(ref r) => { 
+                return (r.clone(), Some(r.clone()));
             }
-
-            &ReadObsoleteWrite(ref w, ref v) => {
-                val = v.clone();
-                this = ReadWrite(w.clone(), v.clone());
+            Write(ref w) => {
+                return (w.clone(), None);
             }
-
+            ReadWrite(ref o, ref w) => {
+                return (w.clone(), Some(o.clone()));
+            }
             // Upgrade to a real Read
-            &ReadObsolete(ref v)           => {
-                val = v.clone();
-                this = Read(v.clone());
+            ReadObsolete(ref o)           => {
+                val = (o.clone(), Some(o.clone()));
+                this = Read(o.clone());
             }
+            // Upgrade to real ReadWrite.
+            ReadObsoleteWrite(ref o, ref w) => {
+                val = (w.clone(), Some(o.clone()));
+                this = ReadWrite(o.clone(), w.clone());
+            }
+
         };
         *self = this;
         val
     }
     
+
     /// Write a value and potentially upgrade the state.
     pub fn write(&mut self, w: ArcAny)
     {
