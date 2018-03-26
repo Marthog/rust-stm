@@ -24,7 +24,7 @@
 //! Unlike locks Software transactional memory is composable.
 //! It is typically implemented by writing all read and write
 //! operations in a log. When the action has finished and
-//! all the used `TVar`s are consistend, the writes are commited as
+//! all the used `TVar`s are consistent, the writes are commited as
 //! a single atomic operation.
 //! Otherwise the computation repeats. This may lead to starvation,
 //! but avoids common sources of bugs.
@@ -34,11 +34,15 @@
 //!
 //! # Usage
 //!
-//! You should only use the functions that are safe to use.
-//!
-//! Don't have side effects, except those provided by `TVar`.
-//! Especially a mutexes or other blocking mechanisms inside of software transactional
-//! memory are dangerous.
+//! You should only use the functions that are transaction-safe.
+//! Transaction-safe functions don't have side effects, except those provided by `TVar`.
+//! Mutexes and other blocking mechanisms are especially dangerous, because they can
+//! interfere with the internal locking scheme of the transaction and therefore
+//! cause deadlocks.
+//! 
+//! Note, that Transaction-safety does *not* mean safety in the rust sense, but is a
+//! subset of allowed behavior. Even if code is not transaction-safe, no segmentation
+//! faults will happen.
 //!
 //! You can run the top-level atomic operation by calling `atomically`.
 //!
@@ -52,11 +56,12 @@
 //! });
 //! ```
 //!
-//! Calls to `atomically` should not be nested.
+//! Nested calls to `atomically` are not allowed. A run-time check prevents this.
+//! Instead of using atomically internally, add a `&mut Transaction` parameter and
+//! return `StmResult`.
 //!
-//! For running an atomic operation inside of another, pass a mutable reference to a `Transaction`
-//! and call `try!` on the result or use `?`. You should not handle the error yourself, because it
-//! breaks consistency.
+//! Use ? on `StmResult`, to propagate a transaction error through the system.
+//! Do not handle the error yourself.
 //!
 //! ```
 //! use stm::{atomically, TVar};
@@ -68,31 +73,37 @@
 //! });
 //!
 //! println!("var = {}", x);
+//! // var = 42
 //!
 //! ```
 //!
-//! # STM safety
+//! # Transaction safety
 //!
-//! Software transactional memory is completely safe in the terms,
-//! that rust considers safe. Still there are multiple rules that
-//! you should obey when dealing with software transactional memory:
+//! Software transactional memory is completely safe in the rust sense, so
+//! undefined behavior will never occur.
+//! Still there are multiple rules that
+//! you should obey when dealing with software transactional memory.
 //!
-//! * Don't run code with side effects, especially no IO-code,
-//! because stm repeats the computation when it detects inconsistent state.
+//! * Don't run code with side effects, especially no IO-code.
+//! Transactions repeat in failure cases. Using IO would repeat this IO-code.
 //! Return a closure if you have to.
-//! * Don't handle the error types yourself, unless you absolutely know, what you
-//! are doing. Use `Transaction::or`, to combine alternative paths. Always call `try!` or
-//! `?` and never ignore a `StmResult`.
+//! * Don't handle `StmResult` yourself.
+//! Use `Transaction::or` to combine alternative paths and `optionally` to check if an inner
+//! function has failed. Always use `?` and 
+//! never ignore a `StmResult`.
 //! * Don't run `atomically` inside of another. `atomically` is designed to have side effects
-//! and will therefore break stm's assumptions. Nested calls are detected at runtime and
-//! handled with panic.
+//! and will therefore break transaction safety. 
+//! Nested calls are detected at runtime and handled with panicking.
 //! When you use STM in the inner of a function, then
 //! express it in the public interface, by taking `&mut Transaction` as parameter and 
 //! returning `StmResult<T>`. Callers can safely compose it into
 //! larger blocks.
 //! * Don't mix locks and transactions. Your code will easily deadlock or slow
-//! down on unpredictably.
+//! down unpredictably.
 //! * Don't use inner mutability to change the content of a `TVar`.
+//!
+//! Panicking in a transaction is transaction-safe. The transaction aborts and 
+//! all changes are discarded. No poisoning or half written transactions happen.
 //!
 //! # Speed
 //!
@@ -118,8 +129,14 @@ pub use transaction::Transaction;
 pub use transaction::TransactionControl;
 pub use result::*;
 
-/// call `retry`, to abort an operation. It takes another path of an
-/// `Transaction::or` or blocks until any variable changes.
+#[inline]
+/// Call `retry` to abort an operation and run the whole transaction again.
+///
+/// Semantically `retry` allows spin-lock-like behavior, but the library
+/// blocks until one of the used `TVar`s has changed, to keep CPU-usage low.
+///
+/// `Transaction::or` allows to define alternatives. If the first function 
+/// wants to retry, then the second one has a chance to run.
 ///
 /// # Examples
 ///
@@ -142,15 +159,20 @@ where F: Fn(&mut Transaction) -> StmResult<T>
 #[inline]
 /// Unwrap `Option` or call retry if it is `None`.
 ///
+/// `optionally` is the inverse of `unwrap_or_retry`.
+///
 /// # Example
 ///
 /// ```
 /// use stm::*;
+/// let x = TVar::new(Some(42));
 ///
-/// let x = atomically(|_tx|
-///     unwrap_or_retry(Some(42))
+/// atomically(|tx| {
+///         let inner = unwrap_or_retry(x.read(tx)?)?;
+///         assert_eq!(inner, 42); // inner is always 42.
+///         Ok(inner)
+///     }
 /// );
-/// assert_eq!(x, 42);
 /// ```
 pub fn unwrap_or_retry<T>(option: Option<T>) 
     -> StmResult<T> {
@@ -161,15 +183,19 @@ pub fn unwrap_or_retry<T>(option: Option<T>)
 }
 
 #[inline]
-/// Retry until a the condition holds.
+/// Retry until `cond` is true.
 ///
 /// # Example
 ///
 /// ```
 /// use stm::*;
-/// let x = atomically(|_tx| {
-///     guard(true)?; // guard(true) always succeeds.
-///     Ok(42)
+/// let var = TVar::new(42);
+///
+/// let x = atomically(|tx| {
+///     let v = var.read(tx)?;
+///     guard(v==42)?;
+///     // v is now always 42.
+///     Ok(v)
 /// });
 /// assert_eq!(x, 42);
 /// ```
@@ -182,8 +208,13 @@ pub fn guard(cond: bool) -> StmResult<()> {
 }
 
 #[inline]
-/// Optionally run a STM action. If `f` fails with a `retry()`, it does 
+/// Optionally run a transaction `f`. If `f` fails with a `retry()`, it does 
 /// not cancel the whole transaction, but returns `None`.
+///
+/// Note that `optionally` does not always recover the function, if 
+/// inconsistencies where found.
+///
+/// `unwrap_or_retry` is the inverse of `optionally`.
 ///
 /// # Example
 ///
