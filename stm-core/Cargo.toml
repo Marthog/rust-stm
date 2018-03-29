@@ -9,8 +9,8 @@ STM-core implements the bare bones of stm usage. The STM crate adds useful data 
 """
 
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/Marthog/rust-stm/stm-core"
-repository = "https://github.com/Marthog/rust-stm/stm-core"
+homepage = "https://github.com/Marthog/rust-stm"
+repository = "https://github.com/Marthog/rust-stm"
 documentation = "https://docs.rs/stm-core/0.3.0"
 
 readme = "README.md"
