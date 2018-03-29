@@ -4,7 +4,8 @@ use super::Queue;
 
 /// `Queue` is a threadsafe FIFO queue, that uses software transactional memory.
 ///
-/// It is similar to synchronous channels, but undoes operations in case of aborted txactions.
+/// It is similar to synchronous channels, but undoes operations 
+/// in case of aborted transactions.
 ///
 ///
 /// # Example
@@ -13,7 +14,7 @@ use super::Queue;
 /// extern crate stm;
 ///
 /// use stm::*;
-/// use stm::containers::BoundedQueue;
+/// use stm::collections::BoundedQueue;
 ///
 /// fn main() {
 /// let queue = BoundedQueue::new(10);
@@ -24,6 +25,38 @@ use super::Queue;
 /// assert_eq!(x, 42);
 /// }
 /// ```
+///
+/// The implementation of `BoundedQueue` also serves as an example for the
+/// composability of stm.
+/// The whole bounded queue consists of an unbounded queue and a capacity.
+/// ```
+/// # use stm::*;
+/// use stm::collections::Queue;
+/// struct BoundedQueue<T> {
+///     queue: Queue<T>,
+///     cap: TVar<usize>,
+/// }
+/// ```
+///
+/// Popping an element is simple:
+/// ```
+/// # use stm::*;
+/// # use stm::collections::Queue;
+/// # struct BoundedQueue<T> {
+/// #    queue: Queue<T>,
+/// #    cap: TVar<usize>,
+/// # }
+///
+/// pub fn pop(queue: BoundedQueue<String>, tx: &mut Transaction) -> StmResult<String> {
+///     queue.cap.modify(tx, |x| x + 1)?;
+///     queue.queue.pop(tx)
+/// }
+/// ```
+///
+/// Either none of these actions is committed of both of them.
+/// If pop fails, modify is not committed and does not need to be undone manually.
+///
+///
 #[derive(Clone)]
 pub struct BoundedQueue<T> {
     /// Internally use a normal queue.

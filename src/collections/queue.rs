@@ -7,9 +7,10 @@ use super::ArcList;
 // beginning of `read`. If `read` is empty, the reversed list `write` is
 // used as a new list. This way all operations are amortized constant time.
 
-/// `Queue` is a threadsafe FIFO queue, that uses software transactional memory.
+/// `Queue` is a threadsafe FIFO queue.
 ///
-/// It is similar to channels, but undoes operations in case of aborted txactions.
+/// It is similar to channels, but undoes operations in 
+/// case of aborted transactions.
 ///
 ///
 /// # Example
@@ -18,7 +19,7 @@ use super::ArcList;
 /// extern crate stm;
 ///
 /// use stm::*;
-/// use stm::containers::Queue;
+/// use stm::collections::Queue;
 ///
 /// fn main() {
 ///     let queue = Queue::new();
@@ -58,6 +59,7 @@ impl<T: Any + Sync + Clone + Send> Queue<T> {
 
     /// Return the first element without removing it.
     pub fn try_peek(&self, tx: &mut Transaction) -> StmResult<Option<T>> {
+        // Use try_pop here, because try_pop contains the whole queue-reversing code.
         let v = self.try_pop(tx)?;
         if let Some(ref e) = v {
             self.push_front(tx, e.clone())?;
@@ -100,7 +102,7 @@ impl<T: Any + Sync + Clone + Send> Queue<T> {
     /// Check if a queue is empty.
     pub fn is_empty(&self, tx: &mut Transaction) -> StmResult<bool> {
         Ok(
-            self.read.read(tx)?.is_empty() || self.write.read(tx)?.is_empty(),
+            self.read.read(tx)?.is_empty() && self.write.read(tx)?.is_empty(),
         )
     }
 }

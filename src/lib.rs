@@ -119,5 +119,5 @@ extern crate stm_core;
 
 // Reexport everything from stm-core.
 pub use stm_core::*;
-pub mod containers;
+pub mod collections;
 
