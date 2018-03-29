@@ -40,7 +40,7 @@ doc = true
 default = []
 
 [dependencies]
-stm-core = "0.3"
+stm-core = "0.4"
 
-[patch.crates-io]
-stm-core = { path = "stm-core" }
+# [patch.crates-io]
+# stm-core = { path = "stm-core" }
