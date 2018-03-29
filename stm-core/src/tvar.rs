@@ -176,7 +176,7 @@ impl<T> TVar<T>
     /// It is semantically equivalent to 
     ///
     /// ```
-    /// use stm::*;
+    /// # use stm_core::*;
     ///
     /// let var = TVar::new(0);
     /// atomically(|trans| var.read(trans));
@@ -225,7 +225,7 @@ impl<T> TVar<T>
     /// Modify the content of a `TVar` with the function f.
     ///
     /// ```
-    /// use stm::*;
+    /// # use stm_core::*;
     ///
     ///
     /// let var = TVar::new(21);
@@ -246,7 +246,7 @@ impl<T> TVar<T>
     /// the old one.
     ///
     /// ```
-    /// use stm::*;
+    /// # use stm_core::*;
     ///
     /// let var = TVar::new(0);
     /// let x = atomically(|trans| 

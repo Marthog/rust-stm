@@ -1,21 +1,23 @@
 [package]
-name = "stm"
+name = "stm-core"
 version = "0.4.0"
 authors = ["Marthog <Marthog@users.noreply.github.com>"]
 
 description = """
-Implementation of Software transactional memory. Allows composable atomic operations.
+Implementation of Software transactional memory. STM Allows composable atomic operations.
+STM-core implements the bare bones of stm usage. The STM crate adds useful data structures.
 """
 
 license = "MIT OR Apache-2.0"
-homepage = "https://github.com/Marthog/rust-stm"
-repository = "https://github.com/Marthog/rust-stm"
-documentation = "https://docs.rs/stm/0.3.0"
+homepage = "https://github.com/Marthog/rust-stm/stm-core"
+repository = "https://github.com/Marthog/rust-stm/stm-core"
+documentation = "https://docs.rs/stm-core/0.3.0"
 
 readme = "README.md"
 
 keywords = ["stm", "atomic", "transaction", "lockfree", "concurrency"]
 categories = ["concurrency"]
+
 
 [lib]
 # This field points at where the crate is located, relative to the Cargo.toml.
@@ -39,8 +41,7 @@ doc = true
 [features]
 default = []
 
-[dependencies]
-stm-core = "0.3"
+[dependencies.parking_lot]
+version = "0.5"
+default-features = false
 
-[patch.crates-io]
-stm-core = { path = "stm-core" }
