@@ -10,8 +10,8 @@ for more info. Especially the chapter about [Performance](http://chimera.labs.or
 is also important for using STM in rust.
 
 With locks the sequential composition of two 
-two threadsafe actions is no longer threadsafe because
-other threads may interfer in between of these actions.
+threadsafe actions is no longer threadsafe because
+other threads may interfere in between of these actions.
 Applying a third lock to protect both may lead to common sources of errors
 like deadlocks or race conditions.
 
@@ -68,13 +68,13 @@ println!("var = {}", x);
 # STM safety
 
 Software transactional memory is completely safe in the terms,
-that rust considers safe. Still there are multiple rules that
+that Rust considers safe. Still there are multiple rules that
 you should obey when dealing with software transactional memory:
 
 * Don't run code with side effects, especially no IO-code,
 because stm repeats the computation when it detects inconsistent state.
 Return a closure if you have to.
-* Don't handle the error types yourself, unless you absolutely know, what you
+* Don't handle the error types yourself, unless you absolutely know what you
 are doing. Use `Transaction::or`, to combine alternative paths. Always call `try!` or
 `?` and never ignore a `StmResult`.
 * Don't run `atomically` inside of another. `atomically` is designed to have side effects
@@ -85,13 +85,13 @@ express it in the public interface, by taking `&mut Transaction` as parameter an
 returning `StmResult<T>`. Callers can safely compose it into
 larger blocks.
 * Don't mix locks and transactions. Your code will easily deadlock or slow
-down on unpredictably.
+down unpredictably.
 * Don't use inner mutability to change the content of a `TVar`.
 
 # Speed
 
 Generally keep your atomic blocks as small as possible, because
-the more time you spend, the more likely it is, to collide with
+the more time you spend, the more likely it is to collide with
 other threads. For STM, reading `TVar`s is quite slow, because it
 needs to look them up in the log every time.
 Every used `TVar` increases the chance of collisions. Therefore you should
