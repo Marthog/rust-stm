@@ -1,12 +1,11 @@
 # Software Transactional Memory [![Build Status](https://travis-ci.org/Marthog/rust-stm.svg?branch=master)](https://travis-ci.org/Marthog/rust-stm)
 
-
 This library implements [software transactional memory](https://en.wikipedia.org/wiki/Software_transactional_memory),
 often abbreviated with STM.
 
 It is designed closely to haskells STM library. Read Simon Marlow's
-[Parallel and Concurrent Programming in Haskell](http://chimera.labs.oreilly.com/books/1230000000929/ch10.html)
-for more info. Especially the chapter about [Performance](http://chimera.labs.oreilly.com/books/1230000000929/ch10.html#sec_stm-cost)
+[Parallel and Concurrent Programming in Haskell](http://shop.oreilly.com/product/0636920026365.do)
+for more info. Especially the chapter about [Performance](http://shop.oreilly.com/product/0636920026365.do#chapters)
 is also important for using STM in rust.
 
 With locks the sequential composition of two 
