@@ -49,7 +49,7 @@ pub struct VarControlBlock {
     ///
     /// Starvation may occur, if one thread wants to write-lock but others
     /// keep holding read-locks.
-    pub value: RwLock<Arc<Any + Send + Sync>>,
+    pub value: RwLock<Arc<dyn Any + Send + Sync>>,
 }
 
 
@@ -188,7 +188,7 @@ impl<T> TVar<T>
     pub fn read_atomic(&self) -> T {
         let val = self.read_ref_atomic();
 
-        (&*val as &Any)
+        (&*val as &dyn Any)
             .downcast_ref::<T>()
             .expect("wrong type in Var<T>")
             .clone()
@@ -199,7 +199,7 @@ impl<T> TVar<T>
     /// This is mostly used internally, but can be useful in
     /// some cases, because `read_atomic` clones the
     /// inner value, which may be expensive.
-    pub fn read_ref_atomic(&self) -> Arc<Any + Send + Sync> {
+    pub fn read_ref_atomic(&self) -> Arc<dyn Any + Send + Sync> {
         self.control_block
             .value
             .read()
