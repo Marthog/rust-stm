@@ -2,9 +2,8 @@ extern crate proc_macro;
 
 use proc_macro::*;
 use proc_macro2::Span;
-use syn::{GenericArgument, Path, PathArguments, ReturnType, Token, Type};
+use syn::{ReturnType, Token, Type};
 use syn::{
-    parse::*,
     fold::Fold
 };
 
@@ -86,10 +85,3 @@ fn unit() -> Type {
     syn::parse_str("()").unwrap()
 }
 
-fn result() -> Type {
-    syn::parse_str("::core::result::Result").unwrap()
-}
-
-fn default_error() -> Type {
-    syn::parse_str("Error").unwrap()
-}

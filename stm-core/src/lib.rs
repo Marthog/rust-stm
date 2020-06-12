@@ -115,6 +115,8 @@
 //! keep the amount of accessed variables as low as needed.
 //!
 
+#![feature(try_trait)]
+
 extern crate parking_lot;
 
 mod transaction;

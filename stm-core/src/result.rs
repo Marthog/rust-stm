@@ -1,3 +1,15 @@
+use std::ops::Try;
+
+#[derive(Eq, PartialEq, Clone, Copy, Debug)]
+pub struct StmResult<T>{
+    inner: Result<StmError, T>
+}
+
+impl<T> StmResult<T> {
+    pub fn new(value: T) -> Self {
+        StmResult{ inner: Ok(value) }
+    }
+}
 
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 pub enum StmError {
@@ -11,12 +23,20 @@ pub enum StmError {
     Retry,
 }
 
-/// `StmResult` is a result of a single step of a STM calculation.
-///
-/// It informs of success or the type of failure. Normally you should not use
-/// it directly. Especially recovering from an error, e.g. by using `action1.or(action2)`
-/// can break the semantics of stm, and cause delayed wakeups or deadlocks.
-///
-/// For the later case, there is the `transaction.or(action1, action2)`, that
-/// is safe to use.
-pub type StmResult<T> = Result<T, StmError>;
+
+impl<T> Try for StmResult<T> {
+    type Ok = T;
+    type Error = StmError;
+
+    fn into_result(self) -> Self {
+        self.inner
+    }
+    
+    fn from_ok(v: T) -> Self {
+        StmResult::new(v)
+    }
+
+    fn from_error(v: StmError) -> Self {
+        StmResult{inner: Result::from_error(v)}
+    }
+}
