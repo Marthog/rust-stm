@@ -41,6 +41,7 @@ default = []
 
 [dependencies]
 stm-core = "0.4"
+stm-macro = { path="stm-macro" }
 
 # [patch.crates-io]
 # stm-core = { path = "stm-core" }
