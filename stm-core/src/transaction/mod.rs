@@ -23,6 +23,8 @@ use super::tvar::{TVar, VarControlBlock};
 use super::result::*;
 use super::result::StmError::*;
 
+use std::ops::Try;
+
 thread_local!(static TRANSACTION_RUNNING: Cell<bool> = Cell::new(false));
 
 /// `TransactionGuard` checks against nested STM calls.
@@ -112,7 +114,7 @@ impl Transaction {
         // loop until success
         loop {
             // run the computation
-            match f(&mut transaction) {
+            match f(&mut transaction).inner {
                 // on success exit loop
                 Ok(t) => {
                     if transaction.commit() {
@@ -139,7 +141,7 @@ impl Transaction {
     }
 
     /// Perform a downcast on a var.
-    fn downcast<T: Any + Clone>(var: Arc<Any>) -> T {
+    fn downcast<T: Any + Clone>(var: Arc<dyn Any>) -> T {
         match var.downcast_ref::<T>() {
             Some(s) => s.clone(),
             None    => unreachable!("TVar has wrong type")
@@ -174,7 +176,7 @@ impl Transaction {
         };
 
         // For now always succeeds, but that may change later.
-        Ok(Transaction::downcast(value))
+        StmResult::new(Transaction::downcast(value))
     }
 
     /// Write a variable.
@@ -194,7 +196,7 @@ impl Transaction {
         }
 
         // For now always succeeds, but that may change later.
-        Ok(())
+        StmResult::new(())
     }
 
     /// Combine two calculations. When one blocks with `retry`, 
@@ -217,7 +219,7 @@ impl Transaction {
 
         match f {
             // Run other on manual retry call.
-            Err(Retry)      => {
+            StmResult{inner: Err(Retry)}    => {
                 // swap, so that self is the current run
                 mem::swap(self, &mut copy);
 
@@ -226,7 +228,7 @@ impl Transaction {
 
                 // If both called retry then exit.
                 match s {
-                    Err(Failure)        => Err(Failure),
+                    StmResult{inner: Err(Failure)}    => Try::from_error(Failure),
                     s => {
                         self.combine(copy);
                         s

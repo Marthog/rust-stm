@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-pub type ArcAny = Arc<Any + Send + Sync>;
+pub type ArcAny = Arc<dyn Any + Send + Sync>;
 
 /// `LogVar` is used by `Log` to track which `Var` was either read or written or both.
 /// Depending on the type, STM has to write, ensure consistency or block on this value.

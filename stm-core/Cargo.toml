@@ -37,6 +37,8 @@ bench = true
 # A flag for enabling documentation of this target. This is used by `cargo doc`.
 doc = true
 
+[dependencies]
+stm-macro = { path="../stm-macro" }
 
 [features]
 default = []

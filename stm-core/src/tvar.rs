@@ -6,18 +6,21 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::sync::{Arc, Weak};
 use parking_lot::{Mutex, RwLock};
-use std::mem;
-use std::sync::atomic::{self, AtomicUsize};
-use std::cmp;
-use std::any::Any;
-use std::marker::PhantomData;
-use std::fmt::{Debug, self};
+use std::{
+    sync::{Arc, Weak, atomic, atomic::AtomicUsize},
+    mem,
+    cmp,
+    any::Any,
+    marker::PhantomData,
+    fmt::{self, Debug}
+};
 
-use super::result::*;
-use super::transaction::control_block::ControlBlock;
-use super::Transaction;
+use crate::{
+    transaction::control_block::ControlBlock,
+    Transaction,
+    stm
+};
 
 /// `VarControlBlock` contains all the useful data for a `Var` while beeing the same type.
 ///
@@ -49,7 +52,7 @@ pub struct VarControlBlock {
     ///
     /// Starvation may occur, if one thread wants to write-lock but others
     /// keep holding read-locks.
-    pub value: RwLock<Arc<Any + Send + Sync>>,
+    pub value: RwLock<Arc<dyn Any + Send + Sync>>,
 }
 
 
@@ -188,7 +191,7 @@ impl<T> TVar<T>
     pub fn read_atomic(&self) -> T {
         let val = self.read_ref_atomic();
 
-        (&*val as &Any)
+        (&*val as &dyn Any)
             .downcast_ref::<T>()
             .expect("wrong type in Var<T>")
             .clone()
@@ -199,7 +202,7 @@ impl<T> TVar<T>
     /// This is mostly used internally, but can be useful in
     /// some cases, because `read_atomic` clones the
     /// inner value, which may be expensive.
-    pub fn read_ref_atomic(&self) -> Arc<Any + Send + Sync> {
+    pub fn read_ref_atomic(&self) -> Arc<dyn Any + Send + Sync> {
         self.control_block
             .value
             .read()
@@ -210,16 +213,18 @@ impl<T> TVar<T>
     ///
     /// It is equivalent to `transaction.read(&var)`, but more
     /// convenient.
-    pub fn read(&self, transaction: &mut Transaction) -> StmResult<T> {
-        transaction.read(self)
+    #[stm]
+    pub fn read(&self, transaction: &mut Transaction) -> T {
+        transaction.read(self)?
     }
 
     /// The normal way to write a var.
     ///
     /// It is equivalent to `transaction.write(&var, value)`, but more
     /// convenient.
-    pub fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()> {
-        transaction.write(self, value)
+    #[stm]
+    pub fn write(&self, transaction: &mut Transaction, value: T) -> () {
+        transaction.write(self, value)?
     }
 
     /// Modify the content of a `TVar` with the function f.
@@ -235,11 +240,12 @@ impl<T> TVar<T>
     ///
     /// assert_eq!(var.read_atomic(), 42);
     /// ```
-    pub fn modify<F>(&self, transaction: &mut Transaction, f: F) -> StmResult<()> 
-    where F: FnOnce(T) -> T
+    #[stm]
+    pub fn modify<F>(&self, transaction: &mut Transaction, f: F)
+        where F: FnOnce(T) -> T
     {
         let old = self.read(transaction)?;
-        self.write(transaction, f(old))
+        self.write(transaction, f(old))?
     }
     
     /// Replaces the value of a `TVar` with a new one, returning
@@ -256,10 +262,11 @@ impl<T> TVar<T>
     /// assert_eq!(x, 0);
     /// assert_eq!(var.read_atomic(), 42);
     /// ```
-    pub fn replace(&self, transaction: &mut Transaction, value: T) -> StmResult<T> {
+    #[stm]
+    pub fn replace(&self, transaction: &mut Transaction, value: T) -> T {
         let old = self.read(transaction)?;
         self.write(transaction, value)?;
-        Ok(old)
+        old
     }
 
     /// Check if two `TVar`s refer to the same position.

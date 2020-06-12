@@ -1,8 +1,9 @@
 use std::ops::Try;
 
+#[must_use]
 #[derive(Eq, PartialEq, Clone, Copy, Debug)]
 pub struct StmResult<T>{
-    inner: Result<StmError, T>
+    pub(crate) inner: Result<T, StmError>
 }
 
 impl<T> StmResult<T> {
@@ -28,7 +29,7 @@ impl<T> Try for StmResult<T> {
     type Ok = T;
     type Error = StmError;
 
-    fn into_result(self) -> Self {
+    fn into_result(self) -> Result<T, StmError> {
         self.inner
     }
     

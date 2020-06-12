@@ -118,6 +118,7 @@
 #![feature(try_trait)]
 
 extern crate parking_lot;
+extern crate stm_macro;
 
 mod transaction;
 mod tvar;
@@ -131,7 +132,10 @@ pub use transaction::Transaction;
 pub use transaction::TransactionControl;
 pub use result::*;
 
-#[inline]
+pub use stm_macro::stm;
+
+use std::ops::Try;
+
 /// Call `retry` to abort an operation and run the whole transaction again.
 ///
 /// Semantically `retry` allows spin-lock-like behavior, but the library
@@ -146,8 +150,9 @@ pub use result::*;
 /// # use stm_core::*;
 /// let infinite_retry: i32 = atomically(|_| retry());
 /// ```
+#[inline]
 pub fn retry<T>() -> StmResult<T> {
-    Err(StmError::Retry)
+    StmResult::from_error(StmError::Retry)
 }
 
 /// Run a function atomically by using Software Transactional Memory.
@@ -158,7 +163,6 @@ where F: Fn(&mut Transaction) -> StmResult<T>
     Transaction::with(f)
 }
 
-#[inline]
 /// Unwrap `Option` or call retry if it is `None`.
 ///
 /// `optionally` is the inverse of `unwrap_or_retry`.
@@ -176,15 +180,15 @@ where F: Fn(&mut Transaction) -> StmResult<T>
 ///     }
 /// );
 /// ```
-pub fn unwrap_or_retry<T>(option: Option<T>) 
-    -> StmResult<T> {
+#[inline]
+#[stm]
+pub fn unwrap_or_retry<T>(option: Option<T>) -> T {
     match option {
-        Some(x) => Ok(x),
-        None    => retry()
+        Some(x) => x,
+        None    => retry()?
     }
 }
 
-#[inline]
 /// Retry until `cond` is true.
 ///
 /// # Example
@@ -201,15 +205,15 @@ pub fn unwrap_or_retry<T>(option: Option<T>)
 /// });
 /// assert_eq!(x, 42);
 /// ```
-pub fn guard(cond: bool) -> StmResult<()> {
-    if cond {
-        Ok(())
-    } else {
-        retry()
+#[inline]
+#[stm]
+pub fn guard(cond: bool) {
+    if !cond {
+        retry()?
     }
 }
 
-#[inline]
+
 /// Optionally run a transaction `f`. If `f` fails with a `retry()`, it does 
 /// not cancel the whole transaction, but returns `None`.
 ///
@@ -226,15 +230,15 @@ pub fn guard(cond: bool) -> StmResult<()> {
 ///     optionally(tx, |_| retry()));
 /// assert_eq!(x, None);
 /// ```
-pub fn optionally<T,F>(tx: &mut Transaction, f: F) -> StmResult<Option<T>>
+#[stm]
+#[inline]
+pub fn optionally<T,F>(tx: &mut Transaction, f: F) -> Option<T>
     where F: Fn(&mut Transaction) -> StmResult<T>
 {
     tx.or( 
-        |t| f(t).map(Some),
-        |_| Ok(None)
-    )
+        |t| StmResult::new(Some(f(t)?)),
+        |_| StmResult::new(None))?
 }
-
 
 #[cfg(test)]
 mod test_lib {
@@ -285,7 +289,7 @@ mod test_lib {
                     if x == 0 {
                         retry()
                     } else {
-                        Ok(x)
+                        StmResult::new(x)
                     }
                 })
             },
@@ -424,7 +428,7 @@ mod test_lib {
     #[test]
     fn guard_true() {
         let x = guard(true);
-        assert_eq!(x, Ok(()));
+        assert_eq!(x, StmResult::new(()));
     }
 
     #[test]
