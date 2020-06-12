@@ -18,7 +18,7 @@ use std::{
 
 use crate::{
     transaction::control_block::ControlBlock,
-    Transaction,
+    transaction,
     stm
 };
 
@@ -214,8 +214,8 @@ impl<T> TVar<T>
     /// It is equivalent to `transaction.read(&var)`, but more
     /// convenient.
     #[stm]
-    pub fn read(&self, transaction: &mut Transaction) -> T {
-        transaction.read(self)?
+    pub fn read(&self) -> T {
+        transaction::on_trx(|trx| trx.read(self))?
     }
 
     /// The normal way to write a var.
@@ -223,8 +223,8 @@ impl<T> TVar<T>
     /// It is equivalent to `transaction.write(&var, value)`, but more
     /// convenient.
     #[stm]
-    pub fn write(&self, transaction: &mut Transaction, value: T) -> () {
-        transaction.write(self, value)?
+    pub fn write(&self, value: T) {
+        transaction::on_trx(|trx| trx.write(self, value))?;
     }
 
     /// Modify the content of a `TVar` with the function f.
@@ -234,18 +234,18 @@ impl<T> TVar<T>
     ///
     ///
     /// let var = TVar::new(21);
-    /// atomically(|trans| 
-    ///     var.modify(trans, |x| x*2)
+    /// atomically(|| 
+    ///     var.modify(|x| x*2)
     /// );
     ///
     /// assert_eq!(var.read_atomic(), 42);
     /// ```
     #[stm]
-    pub fn modify<F>(&self, transaction: &mut Transaction, f: F)
+    pub fn modify<F>(&self, f: F)
         where F: FnOnce(T) -> T
     {
-        let old = self.read(transaction)?;
-        self.write(transaction, f(old))?
+        let old = self.read()?;
+        self.write(f(old))?
     }
     
     /// Replaces the value of a `TVar` with a new one, returning
@@ -255,17 +255,17 @@ impl<T> TVar<T>
     /// # use stm_core::*;
     ///
     /// let var = TVar::new(0);
-    /// let x = atomically(|trans| 
-    ///     var.replace(trans, 42)
+    /// let x = atomically(|| 
+    ///     var.replace(42)
     /// );
     ///
     /// assert_eq!(x, 0);
     /// assert_eq!(var.read_atomic(), 42);
     /// ```
     #[stm]
-    pub fn replace(&self, transaction: &mut Transaction, value: T) -> T {
-        let old = self.read(transaction)?;
-        self.write(transaction, value)?;
+    pub fn replace(&self, value: T) -> T {
+        let old = self.read()?;
+        self.write(value)?;
         old
     }
 
@@ -277,7 +277,7 @@ impl<T> TVar<T>
     /// Access the control block of the var.
     ///
     /// Internal use only!
-    pub fn control_block(&self) -> &Arc<VarControlBlock> {
+    pub(crate) fn control_block(&self) -> &Arc<VarControlBlock> {
         &self.control_block
     }
 }
@@ -303,7 +303,6 @@ impl<T> Debug for TVar<T>
             .finish()
     }
 }
-
 
 
 #[test]

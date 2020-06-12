@@ -14,7 +14,7 @@ use std::collections::btree_map::Entry::*;
 use std::mem;
 use std::sync::Arc;
 use std::any::Any;
-use std::cell::Cell;
+use std::cell::RefCell;
 
 use self::log_var::LogVar;
 use self::log_var::LogVar::*;
@@ -25,7 +25,7 @@ use super::result::StmError::*;
 
 use std::ops::Try;
 
-thread_local!(static TRANSACTION_RUNNING: Cell<bool> = Cell::new(false));
+thread_local!(static TRX: RefCell<Option<Transaction>> = RefCell::new(None));
 
 /// `TransactionGuard` checks against nested STM calls.
 ///
@@ -34,9 +34,9 @@ struct TransactionGuard;
 
 impl TransactionGuard {
     pub fn new() -> TransactionGuard {
-        TRANSACTION_RUNNING.with(|t| {
-            assert!(!t.get(), "STM: Nested Transaction");
-            t.set(true);
+        TRX.with(|t| {
+            let old = t.replace(Some(Transaction::new()));
+            assert!(old.is_none(), "STM: Nested Transactions are forbidden!");
         });
         TransactionGuard
     }
@@ -44,15 +44,88 @@ impl TransactionGuard {
 
 impl Drop for TransactionGuard {
     fn drop(&mut self) {
-        TRANSACTION_RUNNING.with(|t| {
-            t.set(false);
+        TRX.with(|t| {
+            t.replace(None);
         });
     }
 }
 
+pub fn on_trx<F, T>(f: F) -> T
+    where F: FnOnce(&mut Transaction) -> T
+{
+    TRX.with(|t| {
+        let mut trx = t.borrow_mut();
+        let trx = trx.as_mut()
+            .expect("Called with_transaction outside of a transaction. This should not happen.");
+        f(trx)
+    })
+}
+
+/// Allows the user to control the transaction by calling it from within.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransactionControl {
     Retry, Abort
+}
+
+
+/// Run a function with a transaction.
+///
+/// It is equivalent to `atomically`.
+pub fn atomically<T, F>(f: F) -> T
+where F: Fn() -> StmResult<T>,
+{
+    match atomically_with_control(|_| TransactionControl::Retry, f) {
+        Some(t) => t,
+        None    => unreachable!()
+    }
+}
+
+/// Run a function with a transaction.
+///
+/// `with_control` takes another control function, that
+/// can steer the control flow and possible terminate early.
+///
+/// `control` can react to counters, timeouts or external inputs.
+///
+/// It allows the user to fall back to another strategy, like a global lock
+/// in the case of too much contention.
+///
+/// Please not, that the transaction may still infinitely wait for changes when `retry` is
+/// called and `control` does not abort.
+/// If you need a timeout, another thread should signal this through a TVar.
+pub fn atomically_with_control<T, F, C>(mut control: C, f: F) -> Option<T>
+where F: Fn() -> StmResult<T>,
+      C: FnMut(StmError) -> TransactionControl,
+{
+    let _guard = TransactionGuard::new();
+
+    // loop until success
+    loop {
+        // run the computation
+        match f().inner {
+            // on success exit loop
+            Ok(t) => {
+                if on_trx(|trx| trx.commit()) {
+                    return Some(t);
+                }
+            }
+
+            Err(e) => {
+                // Check if the user wants to abort the transaction.
+                if let TransactionControl::Abort = control(e) {
+                    return None;
+                }
+
+                // on retry wait for changes
+                if let Retry = e {
+                    on_trx(|trx| trx.wait_for_change());
+                }
+            }
+        }
+
+        // clear log before retrying computation
+        on_trx(|trx| trx.clear());
+    }
 }
 
 /// Transaction tracks all the read and written variables.
@@ -75,71 +148,6 @@ impl Transaction {
     fn new() -> Transaction {
         Transaction { vars: BTreeMap::new() }
     }
-
-    /// Run a function with a transaction.
-    ///
-    /// It is equivalent to `atomically`.
-    pub fn with<T, F>(f: F) -> T 
-    where F: Fn(&mut Transaction) -> StmResult<T>,
-    {
-        match Transaction::with_control(|_| TransactionControl::Retry, f) {
-            Some(t) => t,
-            None    => unreachable!()
-        }
-    }
-
-    /// Run a function with a transaction.
-    ///
-    /// `with_control` takes another control function, that
-    /// can steer the control flow and possible terminate early.
-    ///
-    /// `control` can react to counters, timeouts or external inputs.
-    ///
-    /// It allows the user to fall back to another strategy, like a global lock
-    /// in the case of too much contention.
-    ///
-    /// Please not, that the transaction may still infinitely wait for changes when `retry` is
-    /// called and `control` does not abort.
-    /// If you need a timeout, another thread should signal this through a TVar.
-    pub fn with_control<T, F, C>(mut control: C, f: F) -> Option<T>
-    where F: Fn(&mut Transaction) -> StmResult<T>,
-          C: FnMut(StmError) -> TransactionControl,
-    {
-        let _guard = TransactionGuard::new();
-
-        // create a log guard for initializing and cleaning up
-        // the log
-        let mut transaction = Transaction::new();
-
-        // loop until success
-        loop {
-            // run the computation
-            match f(&mut transaction).inner {
-                // on success exit loop
-                Ok(t) => {
-                    if transaction.commit() {
-                        return Some(t);
-                    }
-                }
-
-                Err(e) => {
-                    // Check if the user wants to abort the transaction.
-                    if let TransactionControl::Abort = control(e) {
-                        return None;
-                    }
-
-                    // on retry wait for changes
-                    if let Retry = e {
-                        transaction.wait_for_change();
-                    }
-                }
-            }
-
-            // clear log before retrying computation
-            transaction.clear();
-        }
-    }
-
     /// Perform a downcast on a var.
     fn downcast<T: Any + Clone>(var: Arc<dyn Any>) -> T {
         match var.downcast_ref::<T>() {
@@ -197,48 +205,6 @@ impl Transaction {
 
         // For now always succeeds, but that may change later.
         StmResult::new(())
-    }
-
-    /// Combine two calculations. When one blocks with `retry`, 
-    /// run the other, but don't commit the changes in the first.
-    ///
-    /// If both block, `Transaction::or` still waits for `TVar`s in both functions.
-    /// Use `Transaction::or` instead of handling errors directly with the `Result::or`.
-    /// The later does not handle all the blocking correctly.
-    pub fn or<T, F1, F2>(&mut self, first: F1, second: F2) -> StmResult<T>
-        where F1: Fn(&mut Transaction) -> StmResult<T>,
-              F2: Fn(&mut Transaction) -> StmResult<T>,
-    {
-        // Create a backup of the log.
-        let mut copy = Transaction {
-            vars: self.vars.clone()
-        };
-
-        // Run the first computation.
-        let f = first(self);
-
-        match f {
-            // Run other on manual retry call.
-            StmResult{inner: Err(Retry)}    => {
-                // swap, so that self is the current run
-                mem::swap(self, &mut copy);
-
-                // Run other action.
-                let s = second(self);
-
-                // If both called retry then exit.
-                match s {
-                    StmResult{inner: Err(Failure)}    => Try::from_error(Failure),
-                    s => {
-                        self.combine(copy);
-                        s
-                    }
-                }
-            }
-
-            // Return success and failure directly
-            x               => x,
-        }
     }
 
     /// Combine two logs into a single log, to allow waiting for all reads.
@@ -386,6 +352,49 @@ impl Transaction {
     }
 }
 
+/// Combine two calculations. When one blocks with `retry`, 
+/// run the other, but don't commit the changes in the first.
+///
+/// If both block, `Transaction::or` still waits for `TVar`s in both functions.
+/// Use `Transaction::or` instead of handling errors directly with the `Result::or`.
+/// The later does not handle all the blocking correctly.
+pub fn or<T, F1, F2>(first: F1, second: F2) -> StmResult<T>
+    where F1: Fn() -> StmResult<T>,
+          F2: Fn() -> StmResult<T>,
+{
+    // Create a backup of the log.
+    let mut copy = Transaction {
+        vars: on_trx(|trx| trx.vars.clone())
+    };
+
+    // Run the first computation.
+    let f = first();
+
+    match f {
+        // Run other on manual retry call.
+        StmResult{inner: Err(Retry)}    => {
+            // Reset the transaction state.
+            on_trx(|trx| mem::swap(trx, &mut copy));
+
+            // Run other action.
+            let s = second();
+
+            // If both called retry then exit.
+            match s {
+                StmResult{inner: Err(Failure)}    => Try::from_error(Failure),
+                s => {
+                    on_trx(|trx| trx.combine(copy));
+                    s
+                }
+            }
+        }
+
+        // Return success and failure directly
+        x               => x,
+    }
+}
+
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -395,7 +404,7 @@ mod test {
         let var = TVar::new(vec![1, 2, 3, 4]);
 
         // The variable can be read.
-        assert_eq!(&*log.read(&var).unwrap(), &[1, 2, 3, 4]);
+        assert_eq!(&*log.read(&var).into_result().unwrap(), &[1, 2, 3, 4]);
     }
 
     #[test]
@@ -403,10 +412,10 @@ mod test {
         let mut log = Transaction::new();
         let var = TVar::new(vec![1, 2]);
 
-        log.write(&var, vec![1, 2, 3, 4]).unwrap();
+        log.write(&var, vec![1, 2, 3, 4]).into_result().unwrap();
 
         // Consecutive reads get the updated version.
-        assert_eq!(log.read(&var).unwrap(), [1, 2, 3, 4]);
+        assert_eq!(log.read(&var).into_result().unwrap(), [1, 2, 3, 4]);
 
         // The original value is still preserved.
         assert_eq!(var.read_atomic(), [1, 2]);
@@ -414,7 +423,7 @@ mod test {
 
     #[test]
     fn transaction_simple() {
-        let x = Transaction::with(|_| Ok(42));
+        let x = atomically(|| StmResult::new(42));
         assert_eq!(x, 42);
     }
 
@@ -422,8 +431,8 @@ mod test {
     fn transaction_read() {
         let read = TVar::new(42);
 
-        let x = Transaction::with(|trans| {
-            read.read(trans)
+        let x = atomically(|| {
+            read.read()
         });
 
         assert_eq!(x, 42);
@@ -436,8 +445,8 @@ mod test {
     fn transaction_with_control_abort_on_single_run() {
         let read = TVar::new(42);
 
-        let x = Transaction::with_control(|_| TransactionControl::Abort, |tx| {
-            read.read(tx)
+        let x = atomically_with_control(|_| TransactionControl::Abort, || {
+            read.read()
         });
 
         assert_eq!(x, Some(42));
@@ -447,8 +456,8 @@ mod test {
     /// The transaction retries infinitely often. The control function will abort this loop.
     #[test]
     fn transaction_with_control_abort_on_retry() {
-        let x: Option<i32> = Transaction::with_control(|_| TransactionControl::Abort, |_| {
-            Err(Retry)
+        let x: Option<i32> = atomically_with_control(|_| TransactionControl::Abort, || {
+            StmResult{inner: Err(Retry)}
         });
 
         assert_eq!(x, None);
@@ -459,8 +468,8 @@ mod test {
     fn transaction_write() {
         let write = TVar::new(42);
 
-        Transaction::with(|trans| {
-            write.write(trans, 0)
+        atomically(|| {
+            write.write(0)
         });
 
         assert_eq!(write.read_atomic(), 0);
@@ -471,9 +480,9 @@ mod test {
         let read = TVar::new(42);
         let write = TVar::new(0);
 
-        Transaction::with(|trans| {
-            let r = read.read(trans)?;
-            write.write(trans, r)
+        atomically(|| {
+            let r = read.read()?;
+            write.write(r)
         });
 
         assert_eq!(write.read_atomic(), 42);
@@ -485,9 +494,9 @@ mod test {
         let read = TVar::new(42);
         let write = TVar::new(0);
 
-        Transaction::with(|trans| {
-            let r = read.read(trans)?;
-            write.write(trans, r)
+        atomically(|| {
+            let r = read.read()?;
+            write.write(r)
         });
 
         assert_eq!(write.read_atomic(), 42);
@@ -497,9 +506,9 @@ mod test {
     #[test]
     #[should_panic]
     fn transaction_nested_fail() {
-        Transaction::with(|_| {
-            Transaction::with(|_| Ok(42));
-            Ok(1)
+        atomically(|| {
+            atomically(|| StmResult::new(42));
+            StmResult::new(1)
         });
     }
 }

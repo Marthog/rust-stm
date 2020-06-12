@@ -49,10 +49,10 @@
 //!
 //! ```
 //! # use stm_core::atomically;
-//! atomically(|trans| {
+//! atomically(|| {
 //!     // some action
 //!     // return value as `Result`, for example
-//!     Ok(42)
+//!     StmResult::new(42)
 //! });
 //! ```
 //!
@@ -67,9 +67,9 @@
 //! # use stm_core::{atomically, TVar};
 //! let var = TVar::new(0);
 //!
-//! let x = atomically(|trans| {
-//!     var.write(trans, 42)?; // Pass failure to parent.
-//!     var.read(trans) // Return the value saved in var.
+//! let x = atomically(|| {
+//!     var.write(42)?; // Pass failure to parent.
+//!     var.read() // Return the value saved in var.
 //! });
 //!
 //! println!("var = {}", x);
@@ -128,8 +128,7 @@ mod result;
 mod test;
 
 pub use tvar::TVar;
-pub use transaction::Transaction;
-pub use transaction::TransactionControl;
+pub use transaction::{or, atomically_with_control, atomically, TransactionControl};
 pub use result::*;
 
 pub use stm_macro::stm;
@@ -148,20 +147,13 @@ use std::ops::Try;
 ///
 /// ```no_run
 /// # use stm_core::*;
-/// let infinite_retry: i32 = atomically(|_| retry());
+/// let infinite_retry: i32 = atomically(|| retry());
 /// ```
 #[inline]
 pub fn retry<T>() -> StmResult<T> {
     StmResult::from_error(StmError::Retry)
 }
 
-/// Run a function atomically by using Software Transactional Memory.
-/// It calls to `Transaction::with` internally, but is more explicit.
-pub fn atomically<T, F>(f: F) -> T
-where F: Fn(&mut Transaction) -> StmResult<T>
-{
-    Transaction::with(f)
-}
 
 /// Unwrap `Option` or call retry if it is `None`.
 ///
@@ -173,10 +165,10 @@ where F: Fn(&mut Transaction) -> StmResult<T>
 /// # use stm_core::*;
 /// let x = TVar::new(Some(42));
 ///
-/// atomically(|tx| {
-///         let inner = unwrap_or_retry(x.read(tx)?)?;
+/// atomically(|| {
+///         let inner = unwrap_or_retry(x.read()?)?;
 ///         assert_eq!(inner, 42); // inner is always 42.
-///         Ok(inner)
+///         StmResult::new(inner)
 ///     }
 /// );
 /// ```
@@ -213,7 +205,6 @@ pub fn guard(cond: bool) {
     }
 }
 
-
 /// Optionally run a transaction `f`. If `f` fails with a `retry()`, it does 
 /// not cancel the whole transaction, but returns `None`.
 ///
@@ -226,18 +217,21 @@ pub fn guard(cond: bool) {
 ///
 /// ```
 /// # use stm_core::*;
-/// let x:Option<i32> = atomically(|tx| 
-///     optionally(tx, |_| retry()));
+/// let x:Option<i32> = atomically(|| 
+///     optionally(|| retry()));
 /// assert_eq!(x, None);
 /// ```
-#[stm]
+// #[stm]
 #[inline]
-pub fn optionally<T,F>(tx: &mut Transaction, f: F) -> Option<T>
-    where F: Fn(&mut Transaction) -> StmResult<T>
+pub fn optionally<T,F>(f: F) -> StmResult<Option<T>>
+    where F: Fn() -> StmResult<T>
 {
-    tx.or( 
-        |t| StmResult::new(Some(f(t)?)),
-        |_| StmResult::new(None))?
+    transaction::or(
+        || {
+            let ret = f()?;
+            StmResult::new(Some(ret))
+        },
+        || StmResult::new(None))
 }
 
 #[cfg(test)]
@@ -247,7 +241,7 @@ mod test_lib {
     #[test]
     fn infinite_retry() {
         let terminated = test::terminates(300, || { 
-            let _infinite_retry: i32 = atomically(|_| retry());
+            let _infinite_retry: i32 = atomically(|| retry());
         });
         assert!(!terminated);
     }
@@ -256,9 +250,9 @@ mod test_lib {
     fn stm_nested() {
         let var = TVar::new(0);
 
-        let x = atomically(|tx| {
-            var.write(tx, 42)?;
-            var.read(tx)
+        let x = atomically(|| {
+            var.write(42)?;
+            var.read()
         });
 
         assert_eq!(42, x);
@@ -284,8 +278,8 @@ mod test_lib {
 
         let x = test::async(800,
             move || {
-                atomically(|tx| {
-                    let x = varc.read(tx)?;
+                atomically(|| {
+                    let x = varc.read()?;
                     if x == 0 {
                         retry()
                     } else {
@@ -296,7 +290,7 @@ mod test_lib {
             || {
                 thread::sleep(Duration::from_millis(100));
 
-                atomically(|tx| var.write(tx, 42));
+                atomically(|| var.write(42));
             }
         ).unwrap();
 
@@ -316,15 +310,15 @@ mod test_lib {
 
         // spawn a thread
         let t = thread::spawn(move || {
-            atomically(|tx| {
+            atomically(|| {
                 // read the var
-                let x = varc.read(tx)?;
+                let x = varc.read()?;
                 // ensure that x varc changes in between
                 thread::sleep(Duration::from_millis(500));
 
                 // write back modified data this should only
                 // happen when the value has not changed
-                varc.write(tx, x + 10)
+                varc.write(x + 10)
             });
         });
 
@@ -332,7 +326,7 @@ mod test_lib {
         thread::sleep(Duration::from_millis(100));
 
         // now change it
-        atomically(|tx| var.write(tx, 32));
+        atomically(|| var.write(32));
 
         // finish and compare
         let _ = t.join();
@@ -343,13 +337,9 @@ mod test_lib {
     fn or_simple() {
         let var = TVar::new(42);
 
-        let x = atomically(|tx| {
-            tx.or(|_| {
-                retry()
-            },
-            |tx| {
-                var.read(tx)
-            })
+        let x = atomically(|| {
+            or(|| retry(),
+               || var.read())
         });
 
         assert_eq!(x, 42);
@@ -361,13 +351,13 @@ mod test_lib {
     fn or_nocommit() {
         let var = TVar::new(42);
 
-        let x = atomically(|tx| {
-            tx.or(|tx| {
-                var.write(tx, 23)?;
+        let x = atomically(|| {
+            or(|| {
+                var.write(23)?;
                 retry()
             },
-            |tx| {
-                var.read(tx)
+            || {
+                var.read()
             })
         });
 
@@ -378,15 +368,15 @@ mod test_lib {
     fn or_nested_first() {
         let var = TVar::new(42);
 
-        let x = atomically(|tx| {
-            tx.or(
-                |tx| {
-                    tx.or(
-                        |_| retry(),
-                        |_| retry()
+        let x = atomically(|| {
+            or(
+                || {
+                    or(
+                        || retry(),
+                        || retry()
                     )
                 },
-                |tx| var.read(tx)
+                || var.read()
             )
         });
 
@@ -397,14 +387,14 @@ mod test_lib {
     fn or_nested_second() {
         let var = TVar::new(42);
 
-        let x = atomically(|tx| {
-            tx.or(
-                |_| {
+        let x = atomically(|| {
+            or(
+                || {
                     retry()
                 },
-                |t| t.or(
-                    |t2| var.read(t2),
-                    |_| retry()
+                || or(
+                    || var.read(),
+                    || retry()
                 )
             )
         });
@@ -415,7 +405,7 @@ mod test_lib {
     #[test]
     fn unwrap_some() {
         let x = Some(42);
-        let y = atomically(|_| unwrap_or_retry(x));
+        let y = atomically(|| unwrap_or_retry(x));
         assert_eq!(y, 42);
     }
 
@@ -439,15 +429,15 @@ mod test_lib {
 
     #[test]
     fn optionally_succeed() {
-        let x = atomically(|t| 
-            optionally(t, |_| Ok(42)));
+        let x = atomically(|| 
+            optionally(|| StmResult::new(42)));
         assert_eq!(x, Some(42));
     }
 
     #[test]
     fn optionally_fail() {
-        let x:Option<i32> = atomically(|t| 
-            optionally(t, |_| retry()));
+        let x:Option<i32> = atomically(|| 
+            optionally(|| retry()));
         assert_eq!(x, None);
     }
 }
