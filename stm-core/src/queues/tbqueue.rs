@@ -1,4 +1,5 @@
 use super::TQueueLike;
+use crate::test_queue_mod;
 use crate::{guard, retry, StmResult, TVar, Transaction};
 use std::any::Any;
 
@@ -71,13 +72,15 @@ where
     }
 }
 
+test_queue_mod!(TBQueue, || {
+    crate::queues::tbqueue::TBQueue::<i32>::new(1_000_000)
+});
+
 #[cfg(test)]
 mod test {
-    use super::super::test as tq;
     use super::{TBQueue, TQueueLike};
     use crate::test;
     use crate::{atomically, optionally};
-    use etest::Bencher;
     use std::thread;
     use std::time::Duration;
 
@@ -115,30 +118,5 @@ mod test {
         );
 
         assert!(terminated);
-    }
-
-    #[test]
-    fn write_and_read_back() {
-        tq::write_and_read_back(TBQueue::<i32>::new(1_000_000));
-    }
-
-    #[test]
-    fn threaded() {
-        tq::threaded(TBQueue::<i32>::new(1_000_000));
-    }
-
-    #[bench]
-    fn bench_two_threads_read_write(b: &mut Bencher) {
-        tq::bench_two_threads_read_write(b, || TBQueue::<i32>::new(1_000_000));
-    }
-
-    #[bench]
-    fn bench_one_thread_write_many_then_read(b: &mut Bencher) {
-        tq::bench_one_thread_write_many_then_read(b, || TBQueue::<i32>::new(1_000_000));
-    }
-
-    #[bench]
-    fn bench_one_thread_repeat_write_read(b: &mut Bencher) {
-        tq::bench_one_thread_repeat_write_read(b, || TBQueue::<i32>::new(1_000_000));
     }
 }

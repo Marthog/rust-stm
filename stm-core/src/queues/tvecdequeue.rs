@@ -1,4 +1,5 @@
 use super::TQueueLike;
+use crate::test_queue_mod;
 use crate::{retry, StmResult, TVar, Transaction};
 use std::{any::Any, collections::VecDeque};
 
@@ -45,34 +46,6 @@ where
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::super::test as tq;
-    use super::TVecDequeue;
-    use etest::Bencher;
-
-    #[test]
-    fn write_and_read_back() {
-        tq::write_and_read_back(TVecDequeue::<i32>::new());
-    }
-
-    #[test]
-    fn threaded() {
-        tq::threaded(TVecDequeue::<i32>::new());
-    }
-
-    #[bench]
-    fn bench_two_threads_read_write(b: &mut Bencher) {
-        tq::bench_two_threads_read_write(b, || TVecDequeue::<i32>::new());
-    }
-
-    #[bench]
-    fn bench_one_thread_write_many_then_read(b: &mut Bencher) {
-        tq::bench_one_thread_write_many_then_read(b, || TVecDequeue::<i32>::new());
-    }
-
-    #[bench]
-    fn bench_one_thread_repeat_write_read(b: &mut Bencher) {
-        tq::bench_one_thread_repeat_write_read(b, || TVecDequeue::<i32>::new());
-    }
-}
+test_queue_mod!(TVecDequeue, || {
+    crate::queues::tvecdequeue::TVecDequeue::<i32>::new()
+});

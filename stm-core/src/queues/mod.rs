@@ -26,7 +26,8 @@ mod test {
     use crate::atomically;
     use crate::test;
 
-    pub fn write_and_read_back<Q: TQueueLike<i32>>(queue: Q) {
+    pub fn test_write_and_read_back<Q: 'static + TQueueLike<i32>>(mq: fn() -> Q) {
+        let queue = mq();
         let (x, y) = atomically(|tx| {
             queue.write(tx, 42)?;
             queue.write(tx, 31)?;
@@ -46,8 +47,8 @@ mod test {
     /// Thread 2: Wait a bit, then write a value.
     ///
     /// Check that Thread 1 has been woken up to read the value written by Thread 2.
-    pub fn threaded<Q: 'static + TQueueLike<i32>>(queue: Q) {
-        let queue1 = queue;
+    pub fn test_threaded<Q: 'static + TQueueLike<i32>>(mq: fn() -> Q) {
+        let queue1 = mq();
         // Clone for Thread 2
         let queue2 = queue1.clone();
 
@@ -128,4 +129,45 @@ mod test {
             }
         });
     }
+}
+
+#[macro_export]
+macro_rules! test_queue_mod {
+    ($type:ty, $make:expr) => {
+        #[cfg(test)]
+        mod test_queue {
+            use super::super::test as tq;
+
+            #[test]
+            fn write_and_read_back() {
+                tq::test_write_and_read_back($make);
+            }
+
+            #[test]
+            fn threaded() {
+                tq::test_threaded($make);
+            }
+        }
+
+        #[cfg(test)]
+        mod bench_queue {
+            use super::super::test as tq;
+            use etest::Bencher;
+
+            #[bench]
+            fn two_threads_read_write(b: &mut Bencher) {
+                tq::bench_two_threads_read_write(b, $make);
+            }
+
+            #[bench]
+            fn one_thread_write_many_then_read(b: &mut Bencher) {
+                tq::bench_one_thread_write_many_then_read(b, $make);
+            }
+
+            #[bench]
+            fn one_thread_repeat_write_read(b: &mut Bencher) {
+                tq::bench_one_thread_repeat_write_read(b, $make);
+            }
+        }
+    };
 }

@@ -1,4 +1,5 @@
 use super::TQueueLike;
+use crate::test_queue_mod;
 use crate::{retry, StmResult, TVar, Transaction};
 use std::any::Any;
 
@@ -95,34 +96,4 @@ where
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::super::test as tq;
-    use super::TChan;
-    use etest::Bencher;
-
-    #[test]
-    fn write_and_read_back() {
-        tq::write_and_read_back(TChan::<i32>::new());
-    }
-
-    #[test]
-    fn threaded() {
-        tq::threaded(TChan::<i32>::new());
-    }
-
-    #[bench]
-    fn bench_two_threads_read_write(b: &mut Bencher) {
-        tq::bench_two_threads_read_write(b, || TChan::<i32>::new());
-    }
-
-    #[bench]
-    fn bench_one_thread_write_many_then_read(b: &mut Bencher) {
-        tq::bench_one_thread_write_many_then_read(b, || TChan::<i32>::new());
-    }
-
-    #[bench]
-    fn bench_one_thread_repeat_write_read(b: &mut Bencher) {
-        tq::bench_one_thread_repeat_write_read(b, || TChan::<i32>::new());
-    }
-}
+test_queue_mod!(TChan, || { crate::queues::tchan::TChan::<i32>::new() });
