@@ -45,7 +45,7 @@ where
     ///
     /// Both read and write `TVar`s will be pointing at a common `TVar`
     /// containing an empty list.
-    /// ```no_run
+    /// ```text
     ///    [TNil]
     ///   / \
     /// [*]  [*]
@@ -68,7 +68,7 @@ where
     /// Pop the head of the queue, or retry until there is an element if it's empty.
     ///
     /// Moves the read `TVar` down the list to point at the next item.
-    /// ```no_run
+    /// ```text
     ///  [TCons(x, [TCons(y, [TNil])])]
     ///  |         |         |
     /// [ ]       [*]       [*]
@@ -90,7 +90,7 @@ where
     ///
     /// Replaces the contents of the current write `TVar` with a `TCons` and points
     /// the write `TVar` at a new `TNil`.
-    /// ```no_run
+    /// ```text
     ///  [TCons(x, [TCons(y, [TNil])])]
     ///  |         |         |
     /// [*]       [ ]       [*]
