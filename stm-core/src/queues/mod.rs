@@ -100,8 +100,9 @@ mod test {
             });
 
             let t2 = thread::spawn(move || {
-                for _ in 1..n {
-                    let _ = atomically(|tx| queue2.read(tx));
+                for i in 1..n {
+                    let r = atomically(|tx| queue2.read(tx));
+                    assert_eq!(i, r);
                 }
             });
 
@@ -122,8 +123,9 @@ mod test {
             for i in 1..n {
                 atomically(|tx| chan.write(tx, i));
             }
-            for _ in 1..n {
-                atomically(|tx| chan.read(tx));
+            for i in 1..n {
+                let r = atomically(|tx| chan.read(tx));
+                assert_eq!(i, r);
             }
         });
     }
@@ -139,8 +141,9 @@ mod test {
                 for j in 1..m {
                     atomically(|tx| chan.write(tx, i * m + j));
                 }
-                for _ in 1..m {
-                    atomically(|tx| chan.read(tx));
+                for j in 1..m {
+                    let r = atomically(|tx| chan.read(tx));
+                    assert_eq!(i * m + j, r);
                 }
             }
         });
