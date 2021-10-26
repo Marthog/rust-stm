@@ -122,8 +122,8 @@ extern crate test as etest;
 
 mod transaction;
 mod tvar;
-mod tqueue;
 mod result;
+mod queues;
 
 #[cfg(test)]
 mod test;
