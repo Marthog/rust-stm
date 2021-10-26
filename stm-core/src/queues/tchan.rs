@@ -50,6 +50,15 @@ where
             write: TVar::new(hole),
         }
     }
+
+    fn is_empty_list(transaction: &mut Transaction, tvl: &TVar<TVarList<T>>) -> StmResult<bool> {
+        let list_var = tvl.read(transaction)?;
+        let list = list_var.read(transaction)?;
+        match list {
+            TList::TNil => Ok(true),
+            _ => Ok(false),
+        }
+    }
 }
 
 impl<T> TQueueLike<T> for TChan<T>
@@ -93,6 +102,14 @@ where
         var_list.write(transaction, TList::TCons(value, new_list_end.clone()))?;
         self.write.write(transaction, new_list_end)?;
         Ok(())
+    }
+
+    fn is_empty(&self, transaction: &mut Transaction) -> StmResult<bool> {
+        if TChan::<T>::is_empty_list(transaction, &self.read)? {
+            TChan::<T>::is_empty_list(transaction, &self.write)
+        } else {
+            Ok(false)
+        }
     }
 }
 

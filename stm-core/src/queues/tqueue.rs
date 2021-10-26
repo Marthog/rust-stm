@@ -61,6 +61,14 @@ where
             }
         }
     }
+
+    fn is_empty(&self, transaction: &mut Transaction) -> StmResult<bool> {
+        if self.read.read(transaction)?.is_empty() {
+            Ok(self.write.read(transaction)?.is_empty())
+        } else {
+            Ok(false)
+        }
+    }
 }
 
 test_queue_mod!(TQueue, || { crate::queues::tqueue::TQueue::<i32>::new() });

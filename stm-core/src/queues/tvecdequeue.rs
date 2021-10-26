@@ -44,6 +44,10 @@ where
             }
         }
     }
+
+    fn is_empty(&self, transaction: &mut Transaction) -> StmResult<bool> {
+        self.queue.read(transaction).map(|v| v.is_empty())
+    }
 }
 
 test_queue_mod!(TVecDequeue, || {

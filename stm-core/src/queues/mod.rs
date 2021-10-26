@@ -13,6 +13,8 @@ pub trait TQueueLike<T>: Clone + Send {
     fn read(&self, transaction: &mut Transaction) -> StmResult<T>;
     /// Push to the end of the queue.
     fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()>;
+    /// Check if the queue is empty.
+    fn is_empty(&self, transaction: &mut Transaction) -> StmResult<bool>;
 }
 
 #[cfg(test)]
@@ -63,6 +65,20 @@ mod test {
         .unwrap();
 
         assert_eq!(42, x);
+    }
+
+    pub fn test_is_empty<Q: 'static + TQueueLike<i32>>(mq: fn() -> Q) {
+        let queue = mq();
+        let is_empty = atomically(|tx| queue.is_empty(tx));
+
+        assert!(is_empty);
+    }
+
+    pub fn test_non_empty<Q: 'static + TQueueLike<i32>>(mq: fn() -> Q) {
+        let queue = mq();
+        atomically(|tx| queue.write(tx, 42));
+        let is_empty = atomically(|tx| queue.is_empty(tx));
+        assert!(!is_empty);
     }
 
     // Benchmarks based on https://github.com/simonmar/parconc-examples/blob/master/chanbench.hs
@@ -146,6 +162,16 @@ macro_rules! test_queue_mod {
             #[test]
             fn threaded() {
                 tq::test_threaded($make);
+            }
+
+            #[test]
+            fn is_empty() {
+                tq::test_is_empty($make);
+            }
+
+            #[test]
+            fn non_empty() {
+                tq::test_non_empty($make);
             }
         }
 
