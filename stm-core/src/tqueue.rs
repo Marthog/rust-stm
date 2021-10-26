@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::{retry, StmResult, TVar, Transaction};
+use crate::{guard, retry, StmResult, TVar, Transaction};
 
 /// Transactional queue-like structure.
 ///
@@ -165,6 +165,75 @@ where
     }
 }
 
+/// Bounded queue using two vectors.
+///
+/// Similar to `TQueue` but every read and write touches a common `TVar`
+/// to track the current capacity, retrying if the queue is full.
+#[derive(Clone)]
+pub struct TBQueue<T> {
+    capacity: TVar<u32>,
+    read: TVar<Vec<T>>,
+    write: TVar<Vec<T>>,
+}
+
+impl<T> TBQueue<T>
+where
+    T: Any + Sync + Send + Clone,
+{
+    /// Create an empty `TBQueue`.
+    #[allow(dead_code)]
+    pub fn new(capacity: u32) -> TBQueue<T> {
+        TBQueue {
+            capacity: TVar::new(capacity),
+            read: TVar::new(Vec::new()),
+            write: TVar::new(Vec::new()),
+        }
+    }
+}
+
+impl<T> TQueueLike<T> for TBQueue<T>
+where
+    T: Any + Sync + Send + Clone,
+{
+    fn write(&self, transaction: &mut Transaction, value: T) -> StmResult<()> {
+        let capacity = self.capacity.read(transaction)?;
+        guard(capacity > 0)?;
+        self.capacity.write(transaction, capacity - 1)?;
+
+        // Same as TQueue.
+        let mut v = self.write.read(transaction)?;
+        v.push(value);
+        self.write.write(transaction, v)
+    }
+
+    fn read(&self, transaction: &mut Transaction) -> StmResult<T> {
+        let capacity = self.capacity.read(transaction)?;
+        self.capacity.write(transaction, capacity + 1)?;
+
+        // Same as TQueue.
+        let mut rv = self.read.read(transaction)?;
+        // Elements are stored in reverse order.
+        match rv.pop() {
+            Some(value) => {
+                self.read.write(transaction, rv)?;
+                Ok(value)
+            }
+            None => {
+                let mut wv = self.write.read(transaction)?;
+                if wv.is_empty() {
+                    retry()
+                } else {
+                    wv.reverse();
+                    let value = wv.pop().unwrap();
+                    self.read.write(transaction, wv)?;
+                    self.write.write(transaction, Vec::new())?;
+                    Ok(value)
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod test_tqueuelike {
     use std::thread;
@@ -282,8 +351,8 @@ mod test_tqueuelike {
 
 #[cfg(test)]
 mod test_tchan {
+    use super::test_tqueuelike as tq;
     use super::TChan;
-    use crate::tqueue::test_tqueuelike as tq;
     use etest::Bencher;
 
     #[test]
@@ -314,8 +383,8 @@ mod test_tchan {
 
 #[cfg(test)]
 mod test_tqueue {
+    use super::test_tqueuelike as tq;
     use super::TQueue;
-    use crate::tqueue::test_tqueuelike as tq;
     use etest::Bencher;
 
     #[test]
@@ -341,5 +410,77 @@ mod test_tqueue {
     #[bench]
     fn bench_one_thread_repeat_write_read(b: &mut Bencher) {
         tq::bench_one_thread_repeat_write_read(b, || TQueue::<i32>::new());
+    }
+}
+
+#[cfg(test)]
+mod test_tbqueue {
+    use super::test_tqueuelike as tq;
+    use super::{TBQueue, TQueueLike};
+    use crate::test;
+    use crate::{atomically, optionally};
+    use etest::Bencher;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn threaded_bounded_blocks() {
+        let queue = TBQueue::<i32>::new(1);
+
+        let terminated = test::terminates(300, move || {
+            atomically(|tx| {
+                queue.write(tx, 1)?;
+                queue.write(tx, 2)
+            });
+        });
+
+        assert!(!terminated);
+    }
+
+    #[test]
+    fn threaded_bounded_unblocks() {
+        let queue1 = TBQueue::<i32>::new(1);
+        let queue2 = queue1.clone();
+
+        let terminated = test::terminates_async(
+            500,
+            move || {
+                // Don't try to write 2 items at the same time or both will be retried,
+                // and the reader will retry because of an empty queue.
+                atomically(|tx| queue2.write(tx, 1));
+                atomically(|tx| queue2.write(tx, 2));
+            },
+            || {
+                thread::sleep(Duration::from_millis(100));
+                atomically(|tx| optionally(tx, |tx| queue1.read(tx)));
+            },
+        );
+
+        assert!(terminated);
+    }
+
+    #[test]
+    fn write_and_read_back() {
+        tq::write_and_read_back(TBQueue::<i32>::new(1_000_000));
+    }
+
+    #[test]
+    fn threaded() {
+        tq::threaded(TBQueue::<i32>::new(1_000_000));
+    }
+
+    #[bench]
+    fn bench_two_threads_read_write(b: &mut Bencher) {
+        tq::bench_two_threads_read_write(b, || TBQueue::<i32>::new(1_000_000));
+    }
+
+    #[bench]
+    fn bench_one_thread_write_many_then_read(b: &mut Bencher) {
+        tq::bench_one_thread_write_many_then_read(b, || TBQueue::<i32>::new(1_000_000));
+    }
+
+    #[bench]
+    fn bench_one_thread_repeat_write_read(b: &mut Bencher) {
+        tq::bench_one_thread_repeat_write_read(b, || TBQueue::<i32>::new(1_000_000));
     }
 }
