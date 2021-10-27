@@ -155,7 +155,7 @@ macro_rules! test_queue_mod {
     ($type:ty, $make:expr) => {
         #[cfg(test)]
         mod test_queue {
-            use super::super::test as tq;
+            use crate::queues::test as tq;
 
             #[test]
             fn write_and_read_back() {
