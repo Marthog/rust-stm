@@ -71,4 +71,4 @@ where
     }
 }
 
-test_queue_mod!(TQueue, || { crate::queues::tqueue::TQueue::<i32>::new() });
+test_queue_mod!(|| { crate::queues::tqueue::TQueue::<i32>::new() });

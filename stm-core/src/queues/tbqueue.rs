@@ -80,9 +80,7 @@ where
     }
 }
 
-test_queue_mod!(TBQueue, || {
-    crate::queues::tbqueue::TBQueue::<i32>::new(1_000_000)
-});
+test_queue_mod!(|| { crate::queues::tbqueue::TBQueue::<i32>::new(1_000_000) });
 
 #[cfg(test)]
 mod test {

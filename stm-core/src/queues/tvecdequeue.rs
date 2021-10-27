@@ -50,6 +50,4 @@ where
     }
 }
 
-test_queue_mod!(TVecDequeue, || {
-    crate::queues::tvecdequeue::TVecDequeue::<i32>::new()
-});
+test_queue_mod!(|| { crate::queues::tvecdequeue::TVecDequeue::<i32>::new() });

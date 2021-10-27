@@ -113,4 +113,4 @@ where
     }
 }
 
-test_queue_mod!(TChan, || { crate::queues::tchan::TChan::<i32>::new() });
+test_queue_mod!(|| { crate::queues::tchan::TChan::<i32>::new() });

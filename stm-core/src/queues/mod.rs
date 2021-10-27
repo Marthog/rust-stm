@@ -150,9 +150,16 @@ mod test {
     }
 }
 
+/// Reuse the same test definitions for each implementation of the `TQueueLike` trait
+/// by calling this macro with a function to create a new instance of the queue.
+///
+/// For example:
+/// ```text
+/// test_queue_mod!(|| { crate::queues::tchan::TChan::<i32>::new() });
+/// ```
 #[macro_export]
 macro_rules! test_queue_mod {
-    ($type:ty, $make:expr) => {
+    ($make:expr) => {
         #[cfg(test)]
         mod test_queue {
             use crate::queues::test as tq;
