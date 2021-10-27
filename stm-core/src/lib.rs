@@ -15,7 +15,7 @@
 //! for more info. Especially the chapter about
 //! Performance is also important for using STM in rust.
 //!
-//! With locks the sequential composition of two 
+//! With locks the sequential composition of two
 //! two threadsafe actions is no longer threadsafe because
 //! other threads may interfer in between of these actions.
 //! Applying a third lock to protect both may lead to common sources of errors
@@ -39,7 +39,7 @@
 //! Mutexes and other blocking mechanisms are especially dangerous, because they can
 //! interfere with the internal locking scheme of the transaction and therefore
 //! cause deadlocks.
-//! 
+//!
 //! Note, that Transaction-safety does *not* mean safety in the rust sense, but is a
 //! subset of allowed behavior. Even if code is not transaction-safe, no segmentation
 //! faults will happen.
@@ -89,20 +89,20 @@
 //! Return a closure if you have to.
 //! * Don't handle `StmResult` yourself.
 //! Use `Transaction::or` to combine alternative paths and `optionally` to check if an inner
-//! function has failed. Always use `?` and 
+//! function has failed. Always use `?` and
 //! never ignore a `StmResult`.
 //! * Don't run `atomically` inside of another. `atomically` is designed to have side effects
-//! and will therefore break transaction safety. 
+//! and will therefore break transaction safety.
 //! Nested calls are detected at runtime and handled with panicking.
 //! When you use STM in the inner of a function, then
-//! express it in the public interface, by taking `&mut Transaction` as parameter and 
+//! express it in the public interface, by taking `&mut Transaction` as parameter and
 //! returning `StmResult<T>`. Callers can safely compose it into
 //! larger blocks.
 //! * Don't mix locks and transactions. Your code will easily deadlock or slow
 //! down unpredictably.
 //! * Don't use inner mutability to change the content of a `TVar`.
 //!
-//! Panicking in a transaction is transaction-safe. The transaction aborts and 
+//! Panicking in a transaction is transaction-safe. The transaction aborts and
 //! all changes are discarded. No poisoning or half written transactions happen.
 //!
 //! # Speed
@@ -115,11 +115,15 @@
 //! keep the amount of accessed variables as low as needed.
 //!
 
+#![feature(test)]
+
 extern crate parking_lot;
+extern crate test as etest;
 
 mod transaction;
 mod tvar;
 mod result;
+mod queues;
 
 #[cfg(test)]
 mod test;
@@ -135,7 +139,7 @@ pub use result::*;
 /// Semantically `retry` allows spin-lock-like behavior, but the library
 /// blocks until one of the used `TVar`s has changed, to keep CPU-usage low.
 ///
-/// `Transaction::or` allows to define alternatives. If the first function 
+/// `Transaction::or` allows to define alternatives. If the first function
 /// wants to retry, then the second one has a chance to run.
 ///
 /// # Examples
@@ -174,7 +178,7 @@ where F: Fn(&mut Transaction) -> StmResult<T>
 ///     }
 /// );
 /// ```
-pub fn unwrap_or_retry<T>(option: Option<T>) 
+pub fn unwrap_or_retry<T>(option: Option<T>)
     -> StmResult<T> {
     match option {
         Some(x) => Ok(x),
@@ -208,10 +212,10 @@ pub fn guard(cond: bool) -> StmResult<()> {
 }
 
 #[inline]
-/// Optionally run a transaction `f`. If `f` fails with a `retry()`, it does 
+/// Optionally run a transaction `f`. If `f` fails with a `retry()`, it does
 /// not cancel the whole transaction, but returns `None`.
 ///
-/// Note that `optionally` does not always recover the function, if 
+/// Note that `optionally` does not always recover the function, if
 /// inconsistencies where found.
 ///
 /// `unwrap_or_retry` is the inverse of `optionally`.
@@ -220,14 +224,14 @@ pub fn guard(cond: bool) -> StmResult<()> {
 ///
 /// ```
 /// # use stm_core::*;
-/// let x:Option<i32> = atomically(|tx| 
+/// let x:Option<i32> = atomically(|tx|
 ///     optionally(tx, |_| retry()));
 /// assert_eq!(x, None);
 /// ```
 pub fn optionally<T,F>(tx: &mut Transaction, f: F) -> StmResult<Option<T>>
     where F: Fn(&mut Transaction) -> StmResult<T>
 {
-    tx.or( 
+    tx.or(
         |t| f(t).map(Some),
         |_| Ok(None)
     )
@@ -240,7 +244,7 @@ mod test_lib {
 
     #[test]
     fn infinite_retry() {
-        let terminated = test::terminates(300, || { 
+        let terminated = test::terminates(300, || {
             let _infinite_retry: i32 = atomically(|_| retry());
         });
         assert!(!terminated);
@@ -265,7 +269,7 @@ mod test_lib {
     ///
     /// Thread 2: Wait a bit. Then write a value.
     ///
-    /// Check if Thread 1 is woken up correctly and then check for 
+    /// Check if Thread 1 is woken up correctly and then check for
     /// correctness.
     #[test]
     fn threaded() {
@@ -276,7 +280,7 @@ mod test_lib {
         // Clone for other thread.
         let varc = var.clone();
 
-        let x = test::async(800,
+        let x = test::run_async(800,
             move || {
                 atomically(|tx| {
                     let x = varc.read(tx)?;
@@ -433,14 +437,14 @@ mod test_lib {
 
     #[test]
     fn optionally_succeed() {
-        let x = atomically(|t| 
+        let x = atomically(|t|
             optionally(t, |_| Ok(42)));
         assert_eq!(x, Some(42));
     }
 
     #[test]
     fn optionally_fail() {
-        let x:Option<i32> = atomically(|t| 
+        let x:Option<i32> = atomically(|t|
             optionally(t, |_| retry()));
         assert_eq!(x, None);
     }
